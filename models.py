@@ -9,6 +9,8 @@ class ResNetBlock(nn.Module):
         self.c1 = nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1)
         self.silu = nn.SiLU()
         self.c2 = nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1)
+        
+        # Handle residual connection
         self.skip = (
             nn.Conv2d(in_ch, out_ch, kernel_size=1)
             if in_ch != out_ch
@@ -18,7 +20,7 @@ class ResNetBlock(nn.Module):
     def forward(self, x):
         residual = self.skip(x)
         x = self.silu(self.c1(x))
-        x = self.c2(x)
+        x = self.silu(self.c2(x))  # Apply SiLU after second conv layer
         x += residual  # Add residual connection
         return x
 
@@ -27,7 +29,7 @@ class AttnBlock(nn.Module):
     def __init__(self, in_ch, n_heads=8):
         super(AttnBlock, self).__init__()
         self.norm = nn.LayerNorm(in_ch)
-        self.attn = nn.MultiheadAttention(in_ch, n_heads)
+        self.attn = nn.MultiheadAttention(embed_dim=in_ch, num_heads=n_heads)
 
     def forward(self, x):
         b, c, h, w = x.shape
@@ -63,60 +65,56 @@ class MLP(nn.Module):
 class UNet(nn.Module):
     def __init__(self):
         super(UNet, self).__init__()
-        channels = [128, 128, 256, 256, 512]
-
-        # Downsampling
+        channels = [128, 256, 512]  # Channels for each stage
+        
         self.down_blocks = nn.ModuleList()
         for i in range(len(channels)):
             in_ch = channels[i - 1] if i > 0 else 1  # grayscale images
             out_ch = channels[i]
-            block = [
-                ResNetBlock(in_ch, out_ch),
-                ResNetBlock(out_ch, out_ch),
-            ]
-            if i % 2 == 1:  # Add attention after every two blocks
-                block.append(AttnBlock(out_ch))
-            block.append(nn.MaxPool2d(2))
-            self.down_blocks.append(nn.Sequential(*block))
-
-        # Upsampling
+            self.down_blocks.append(
+                nn.Sequential(
+                    ResNetBlock(in_ch, out_ch),
+                    ResNetBlock(out_ch, out_ch),
+                    nn.MaxPool2d(2),
+                )
+            )
+        
         self.up_blocks = nn.ModuleList()
         for i in range(len(channels) - 1, -1, -1):
             in_ch = channels[i] * 2 if i < len(channels) - 1 else channels[i]
             out_ch = channels[i]
-            block = [
-                nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
-                ResNetBlock(in_ch, out_ch),
-                ResNetBlock(out_ch, out_ch),
-            ]
-            if i % 2 == 1:  # Add attention after every two blocks
-                block.append(AttnBlock(out_ch))
-            self.up_blocks.append(nn.Sequential(*block))
+            self.up_blocks.append(
+                nn.Sequential(
+                    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+                    ResNetBlock(in_ch, out_ch),
+                    ResNetBlock(out_ch, out_ch),
+                )
+            )
 
-        # Timestep embedding
-        self.timestep_embed = MLP(128, channels[-1])
+        self.timestep_embed = MLP(128, channels[-1])  # Output channels match the last downsampled layer
 
-        # Final Convolution
         self.final_conv = nn.Conv2d(channels[0], 1, kernel_size=1)  # Grayscale output
 
     def forward(self, x, t):
-        # Encode the timestep with sinusoidal embedding
-        t_embed = sin_embedding(t, 128, x.device)
-        t_embed = self.timestep_embed(t_embed).unsqueeze(-1).unsqueeze(-1)
+        t_embed = sin_embedding(t, 128, x.device)  # (batch_size, 128)
+        t_embed = self.timestep_embed(t_embed)  # (batch_size, channels[-1])
 
-        # Downsampling
+        t_embed = t_embed.unsqueeze(-1).unsqueeze(-1)  # (batch_size, channels[-1], 1, 1)
+
         skips = []
         for down in self.down_blocks:
-            x = down(x + t_embed)
+            x = down(x)
             skips.append(x)
+            # Create AttnBlock with correct number of input channels
+            attn_block = AttnBlock(x.size(1), n_heads=8)
+            x = attn_block(x)
+            x += t_embed[:x.size(0)]
 
-        # Upsampling
         for i, up in enumerate(self.up_blocks):
             x = up(torch.cat([x, skips.pop()], dim=1))
+            # Create AttnBlock with correct number of input channels
+            attn_block = AttnBlock(x.size(1), n_heads=8)
+            x = attn_block(x)
 
-        # Final Convolution
-        return self.final_conv(x)
-
-
-if __name__ == "__main__":
-    pass
+        x = self.final_conv(x)
+        return x
