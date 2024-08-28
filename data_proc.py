@@ -31,7 +31,7 @@ def process_image(file_path, output_folder, target_size):
         img_resized = np.clip((img_resized + 1) * 32767.5, 0, 65535).astype(np.uint16)
 
         # Construct the output file name with frame index
-        output_file_name = f"{os.path.splitext(os.path.basename(file_path))[0]}_frame_{i+1}.tiff"
+        output_file_name = f"{os.path.splitext(os.path.basename(file_path))[0]}_frame_{i+1}.png"
         output_file_path = os.path.join(output_folder, output_file_name)
 
         # Save the resized frame
