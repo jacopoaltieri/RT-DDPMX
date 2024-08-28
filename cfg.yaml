@@ -1,0 +1,9 @@
+# Data parameters
+seq_folder: C:/Users/jacop/Desktop/research_fellowship/16bit_tifs
+input_size: [512,512]
+dataset: C:/Users/jacop/Desktop/research_fellowship/dataset
+
+batch_size: 2
+lr: 0.0001
+epochs: 100
+cos_annealing_t_max: 100

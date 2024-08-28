@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import math
 
-
 class ResNetBlock(nn.Module):
     def __init__(self, in_ch, out_ch):
         super(ResNetBlock, self).__init__()
@@ -24,7 +23,6 @@ class ResNetBlock(nn.Module):
         x += residual  # Add residual connection
         return x
 
-
 class AttnBlock(nn.Module):
     def __init__(self, in_ch, n_heads=8):
         super(AttnBlock, self).__init__()
@@ -34,10 +32,10 @@ class AttnBlock(nn.Module):
     def forward(self, x):
         b, c, h, w = x.shape
         x = x.view(b, c, h * w).permute(2, 0, 1)  # (HW, B, C)
+        x = self.norm(x)  # Apply LayerNorm before attention
         x, _ = self.attn(x, x, x)
         x = x.permute(1, 2, 0).view(b, c, h, w)  # (B, C, H, W)
         return x
-
 
 def sin_embedding(timesteps, dim, device):
     half_dim = dim // 2
@@ -49,7 +47,6 @@ def sin_embedding(timesteps, dim, device):
     emb = timesteps[:, None].to(device) * emb[None, :]
     return torch.cat([torch.sin(emb), torch.cos(emb)], dim=-1)
 
-
 class MLP(nn.Module):
     def __init__(self, in_dim, out_dim):
         super(MLP, self).__init__()
@@ -60,7 +57,6 @@ class MLP(nn.Module):
     def forward(self, x):
         x = self.silu(self.fc1(x))
         return self.fc2(x)
-
 
 class UNet(nn.Module):
     def __init__(self):
@@ -106,14 +102,14 @@ class UNet(nn.Module):
             x = down(x)
             skips.append(x)
             # Create AttnBlock with correct number of input channels
-            attn_block = AttnBlock(x.size(1), n_heads=8)
+            attn_block = AttnBlock(x.size(1), n_heads=8).to(x.device)  # Move to correct device
             x = attn_block(x)
             x += t_embed[:x.size(0)]
 
         for i, up in enumerate(self.up_blocks):
             x = up(torch.cat([x, skips.pop()], dim=1))
             # Create AttnBlock with correct number of input channels
-            attn_block = AttnBlock(x.size(1), n_heads=8)
+            attn_block = AttnBlock(x.size(1), n_heads=8).to(x.device)  # Move to correct device
             x = attn_block(x)
 
         x = self.final_conv(x)

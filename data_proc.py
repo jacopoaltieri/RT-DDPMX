@@ -3,11 +3,9 @@ import cv2
 import numpy as np
 import yaml
 from concurrent.futures import ThreadPoolExecutor
+import utils
 
-def load_yaml(path):
-    with open(path) as file:
-        cfg = yaml.safe_load(file)
-        return cfg
+
 
 def process_image(file_path, output_folder, target_size):
     # Read the multi-page TIFF image
@@ -56,7 +54,7 @@ if __name__ == "__main__":
     num_cores = os.cpu_count()
     max_workers = min(num_cores // 2, 4)
     
-    cfg = load_yaml(CFG_PATH)
+    cfg = utils.load_yaml(CFG_PATH)
     
     input_folder = cfg["seq_folder"]
     output_folder = cfg["dataset"]
