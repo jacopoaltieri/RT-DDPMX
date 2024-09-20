@@ -28,6 +28,17 @@ def get_timestep_embedding(timesteps, embedding_dim):
         emb = torch.nn.functional.pad(emb, (0, 1, 0, 0))
     return emb
 
+class TimestepMLP(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(TimestepMLP, self).__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, output_dim),
+        )
+
+    def forward(self, x):
+        return self.mlp(x)
 
 class Upsample(nn.Module):
     def __init__(self, in_ch, with_conv):
@@ -231,17 +242,22 @@ class AttnBlock(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self):
+    def __init__(self, 
+                 in_ch=1, 
+                 out_ch=1, 
+                 ch=128, 
+                 ch_mult=(1, 1, 2, 2, 4), 
+                 num_res_blocks=2, 
+                 attn_resolutions=[16], 
+                 dropout=0.1, 
+                 resolution=256, 
+                 resamp_with_conv=True):
         super().__init__()
-        ch,out_ch,ch_mult = 128,1,tuple([1,1,2,2,4])
-        num_res_blocks = 2
-        attn_resolutions = [16, ]
-        dropout = 0.1
-        in_ch = 1
-        resolution = 512
-        resamp_with_conv = True        
+        
         self.ch = ch
-        self.temb_ch = self.ch*4
+        self.temb_ch = self.ch * 4
+        self.temb_mlp = TimestepMLP(self.ch, self.temb_ch, self.temb_ch)
+
         self.num_resolutions = len(ch_mult)
         self.num_res_blocks = num_res_blocks
         self.resolution = resolution
@@ -252,28 +268,22 @@ class UNet(nn.Module):
         # timestep embedding
         self.temb = nn.Module()
         self.temb.dense = nn.ModuleList([
-            torch.nn.Linear(self.ch,
-                            self.temb_ch),
-            torch.nn.Linear(self.temb_ch,
-                            self.temb_ch),
+            torch.nn.Linear(self.ch, self.temb_ch),
+            torch.nn.Linear(self.temb_ch, self.temb_ch),
         ])
 
         # downsampling
-        self.conv_in = torch.nn.Conv2d(in_ch,
-                                       self.ch,
-                                       kernel_size=3,
-                                       stride=1,
-                                       padding=1)
+        self.conv_in = torch.nn.Conv2d(in_ch, self.ch, kernel_size=3, stride=1, padding=1)
 
         curr_res = resolution
-        in_ch_mult = (1,)+ch_mult
+        in_ch_mult = (1,) + ch_mult
         self.down = nn.ModuleList()
         block_in = None
         for i_level in range(self.num_resolutions):
             block = nn.ModuleList()
             attn = nn.ModuleList()
-            block_in = ch*in_ch_mult[i_level]
-            block_out = ch*ch_mult[i_level]
+            block_in = ch * in_ch_mult[i_level]
+            block_out = ch * ch_mult[i_level]
             for i_block in range(self.num_res_blocks):
                 block.append(ResNetBlock(in_ch=block_in,
                                          out_ch=block_out,
@@ -285,7 +295,7 @@ class UNet(nn.Module):
             down = nn.Module()
             down.block = block
             down.attn = attn
-            if i_level != self.num_resolutions-1:
+            if i_level != self.num_resolutions - 1:
                 down.downsample = Downsample(block_in, resamp_with_conv)
                 curr_res = curr_res // 2
             self.down.append(down)
@@ -307,12 +317,12 @@ class UNet(nn.Module):
         for i_level in reversed(range(self.num_resolutions)):
             block = nn.ModuleList()
             attn = nn.ModuleList()
-            block_out = ch*ch_mult[i_level]
-            skip_in = ch*ch_mult[i_level]
-            for i_block in range(self.num_res_blocks+1):
+            block_out = ch * ch_mult[i_level]
+            skip_in = ch * ch_mult[i_level]
+            for i_block in range(self.num_res_blocks + 1):
                 if i_block == self.num_res_blocks:
-                    skip_in = ch*in_ch_mult[i_level]
-                block.append(ResNetBlock(in_ch=block_in+skip_in,
+                    skip_in = ch * in_ch_mult[i_level]
+                block.append(ResNetBlock(in_ch=block_in + skip_in,
                                          out_ch=block_out,
                                          temb_ch=self.temb_ch,
                                          dropout=dropout))
@@ -329,19 +339,14 @@ class UNet(nn.Module):
 
         # end
         self.norm_out = Normalize(block_in)
-        self.conv_out = torch.nn.Conv2d(block_in,
-                                        out_ch,
-                                        kernel_size=3,
-                                        stride=1,
-                                        padding=1)
+        self.conv_out = torch.nn.Conv2d(block_in, out_ch, kernel_size=3, stride=1, padding=1)
+
     def forward(self, x, t):
         assert x.shape[2] == x.shape[3] == self.resolution
 
         # timestep embedding
         temb = get_timestep_embedding(t, self.ch)
-        temb = self.temb.dense[0](temb)
-        temb = self.silu(temb)
-        temb = self.temb.dense[1](temb)
+        temb = self.temb_mlp(temb)  # Pass through the MLP
 
         # downsampling
         hs = [self.conv_in(x)]
@@ -351,7 +356,7 @@ class UNet(nn.Module):
                 if len(self.down[i_level].attn) > 0:
                     h = self.down[i_level].attn[i_block](h)
                 hs.append(h)
-            if i_level != self.num_resolutions-1:
+            if i_level != self.num_resolutions - 1:
                 hs.append(self.down[i_level].downsample(hs[-1]))
 
         # middle
@@ -362,7 +367,7 @@ class UNet(nn.Module):
 
         # upsampling
         for i_level in reversed(range(self.num_resolutions)):
-            for i_block in range(self.num_res_blocks+1):
+            for i_block in range(self.num_res_blocks + 1):
                 h = self.up[i_level].block[i_block](
                     torch.cat([h, hs.pop()], dim=1), temb)
                 if len(self.up[i_level].attn) > 0:
@@ -375,13 +380,13 @@ class UNet(nn.Module):
         h = self.silu(h)
         h = self.conv_out(h)
         return h
-
+    
+    
 if __name__ == "__main__":
     # Create an instance of the UNet model
-    model = UNet()
+    model = UNet(in_ch=1, out_ch=1, resolution=512)
 
     # Generate a random input tensor of shape (batch_size, channels, height, width)
-    # For example, a batch size of 4, with 1 input channel (grayscale), and 512x512 resolution
     x = torch.randn(4, 1, 512, 512)
 
     # Generate random timesteps tensor for testing
