@@ -2,7 +2,7 @@
 dataset:
   seq_folder: C:/Users/jacop/Desktop/research_fellowship/16bit_tifs
   input_size: [256, 256]
-  directory: C:/Users/jacop/Desktop/research_fellowship/dataset
+  directory: /home/jaltieri/ddpmx/dataset
 
 model:
   in_ch: 1
@@ -18,5 +18,5 @@ model:
 training:
   num_epochs: 100
   learning_rate: 0.0001
-  batch_size: 4
+  batch_size: 1
   cos_annealing_t_max: 100
