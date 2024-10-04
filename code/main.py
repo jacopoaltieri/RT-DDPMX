@@ -34,13 +34,10 @@ def create_dataloaders(image_dir, batch_size=2, train_ratio=0.7, val_ratio=0.15)
 
 
 def train_model(model, dataloader, num_epochs=100, learning_rate=1e-4, device="cuda"):
-    # Set the model to training mode
     model.train()
 
-    # Define the AdamW optimizer
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
 
-    # Cosine learning rate scheduler
     scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=0)
 
     # Mixed precision training setup
@@ -62,7 +59,7 @@ def train_model(model, dataloader, num_epochs=100, learning_rate=1e-4, device="c
             noise = torch.randn_like(images)
             noisy_images = images + noise
 
-            # Zero the gradients
+            # Reset gradients
             optimizer.zero_grad()
 
             # Forward pass with mixed precision
@@ -123,8 +120,8 @@ if __name__ == "__main__":
     model = model.to(device)
 
     # Dataset directory from config
-    image_directory = config["dataset"]["directory"]  # Assuming your YAML has a 'directory' key under 'dataset'
-    batch_size = config["training"]["batch_size"]  # Get batch size from config
+    image_directory = config["dataset"]["directory"]
+    batch_size = config["training"]["batch_size"]
 
     # Create the dataloaders
     # train_loader = utils.generate_mock_dataloader()
