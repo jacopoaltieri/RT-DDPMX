@@ -1,0 +1,23 @@
+#!/bin/bash
+
+#SBATCH --job-name=ddpmx  
+#SBATCH --error=ddpmx-%j.err
+#SBATCH --output=ddpmx-%j.out
+#SBATCH --ntasks=1                 # Number of tasks (1 per GPU)
+#SBATCH --gres=gpu:8               # Request 8 GPUs
+#SBATCH --mem=64000                # Memory per node
+
+module load anaconda/3.23.07
+module load cuda/11.8
+module load cudnn/8.9
+
+source activate venv
+
+
+export PYTHONUNBUFFERED=1
+export TORCH_DISTRIBUTED_DEBUG=INFO
+export LOGLEVEL=INFO
+
+
+# Launch the distributed training using torchrun with 8 processes (one per GPU)
+torchrun --nproc_per_node=8 ~/ddpmx/code/main_multi.py

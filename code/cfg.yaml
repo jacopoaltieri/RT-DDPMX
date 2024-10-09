@@ -1,13 +1,13 @@
 # Data parameters
 dataset:
   seq_folder: C:/Users/jacop/Desktop/research_fellowship/16bit_tifs
-  input_size: [256, 256]
-  directory: /home/jaltieri/ddpmx/dataset
+  input_size: [128,128]
+  directory: /home/jaltieri/ddpmx/dataset128
 
 model:
   in_ch: 1
   out_ch: 1
-  resolution: 256
+  resolution: 128
   num_res_blocks: 2
   ch: 128
   ch_mult: [1, 1, 2, 2, 4]
@@ -18,5 +18,5 @@ model:
 training:
   num_epochs: 100
   learning_rate: 0.0001
-  batch_size: 1
+  batch_size: 8
   cos_annealing_t_max: 100

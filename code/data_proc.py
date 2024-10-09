@@ -56,8 +56,8 @@ if __name__ == "__main__":
     
     cfg = utils.load_yaml(CFG_PATH)
     
-    input_folder = cfg["seq_folder"]
-    output_folder = cfg["dataset"]
-    img_size = tuple(cfg["input_size"])  # Convert list to tuple if needed
+    input_folder = cfg["dataset"]["seq_folder"]
+    output_folder = cfg["dataset"]["directory"]
+    img_size = tuple(cfg["dataset"]["input_size"])
 
     process_folder(input_folder, output_folder, img_size, max_workers)
