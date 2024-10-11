@@ -8,9 +8,10 @@ from models import UNet
 import utils
 import losses
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 # VARIABLES
-model_train = True
+model_train = False  # Set to True to train the model
 
 
 # FUNCTIONS
@@ -37,15 +38,17 @@ def create_dataloaders(image_dir, batch_size=2, train_ratio=0.7, val_ratio=0.15)
     return train_loader, val_loader, test_loader
 
 
-def train_model(model, dataloader, num_epochs=100, learning_rate=1e-4, device="cuda"):
+def train_model(model, dataloader, num_epochs=100, learning_rate=1e-4, device="cuda", patience=5):
     model.train()
 
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
-
     scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=0)
-
-    # Mixed precision training setup
     scaler = GradScaler()
+
+    # Lists to store loss values for plotting
+    train_losses = []
+    best_loss = float('inf')
+    epochs_without_improvement = 0
 
     for epoch in range(num_epochs):
         epoch_loss = 0.0
@@ -60,14 +63,16 @@ def train_model(model, dataloader, num_epochs=100, learning_rate=1e-4, device="c
             timesteps = timesteps.to(device)
 
             # Generate the Gaussian noise η and add it to the image
-            noise = torch.randn_like(images)
+            noise_level = 0.1  # Adjust this value as needed
+            noise = noise_level * torch.randn_like(images)
             noisy_images = images + noise
+
 
             # Reset gradients
             optimizer.zero_grad()
 
             # Forward pass with mixed precision
-            with autocast(device_type=device.type):
+            with autocast(device_type="cuda"):
                 predicted_noise = model(noisy_images, timesteps)
                 loss = losses.mse_loss(predicted_noise, noise)
 
@@ -81,14 +86,38 @@ def train_model(model, dataloader, num_epochs=100, learning_rate=1e-4, device="c
         # Step the scheduler
         scheduler.step()
 
-        # Print the average loss for this epoch
+        # Calculate average loss for the epoch
         avg_loss = epoch_loss / (batch_idx + 1)
+        train_losses.append(avg_loss)
         print(f"Epoch {epoch + 1}/{num_epochs} completed, Average Loss: {avg_loss:.4f}")
+
+        # Early stopping check
+        if avg_loss < best_loss:
+            best_loss = avg_loss
+            epochs_without_improvement = 0
+            # Save the model when it improves
+            torch.save(model.state_dict(), "unet_denoiser_best.pth")
+            print("Model improved and saved as unet_denoiser_best.pth")
+        else:
+            epochs_without_improvement += 1
+            print(f"No improvement for {epochs_without_improvement}/{patience} epochs.")
+
+        if epochs_without_improvement >= patience:
+            print("Early stopping triggered.")
+            break
 
     print("Training complete!")
     
-    torch.save(model.state_dict(), "unet_denoiser.pth")
-    print("Model saved as unet_denoiser.pth")
+    # Plot the training loss
+    plt.figure(figsize=(10, 5))
+    plt.plot(train_losses, label='Training Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Training Loss Over Epochs')
+    plt.legend()
+    plt.grid()
+    plt.savefig('training_loss_plot.png')  # Save the plot as an image
+    plt.show()  # Show the plot
 
 def load_model(model_path, device="cuda"):
     # Initialize the model structure (same as training)
@@ -121,19 +150,15 @@ def denoise_image(model, image, timestep, device="cuda"):
 
     # Generate Gaussian noise and add it to the image
     noise = torch.randn_like(image)
-    noisy_image = image + noise
+    noisy_image = image  # You can add noise if needed
 
     # Forward pass to predict the noise with the model
     with torch.no_grad():
         with autocast(device_type=device.type):
             predicted_noise = model(noisy_image.unsqueeze(0), timestep)
-
-    # Subtract the predicted noise from the noisy image to get the denoised image
-    denoised_image = noisy_image - predicted_noise.squeeze(0)
+            denoised_image = noisy_image - predicted_noise.squeeze(0)  # Correcting this line
 
     return denoised_image.cpu()
-
-
 
 # Main entry point
 if __name__ == "__main__":
@@ -172,7 +197,6 @@ if __name__ == "__main__":
     image_directory = config["dataset"]["directory"]
     batch_size = config["training"]["batch_size"]
 
-
     if model_train:
         # Create the dataloaders
         train_loader, val_loader, test_loader = create_dataloaders(image_directory, batch_size)
@@ -185,12 +209,8 @@ if __name__ == "__main__":
             device=device,
         )
 
-        # Save the model after training
-        torch.save(model.state_dict(), "unet_denoiser.pth")
-        print("Model saved as unet_denoiser.pth")
-
     # Load the model from the saved state for inference
-    model = load_model("unet_denoiser.pth", device=device)
+    model = load_model("unet_denoiser_best.pth", device=device)
 
     # Assuming you have a single image to test on, load the image as a tensor
     test_image = utils.load_image_as_tensor("/home/jaltieri/ddpmx/dataset128/R_b344347d-2db8-432c-8ca7-f660af506286_160_unfiltered_frame_23.png", device=device)
