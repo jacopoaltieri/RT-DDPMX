@@ -199,34 +199,6 @@ class AttnBlock(nn.Module):
 #         return attention
 
 
-# class AttnBlock(nn.Module):
-#     def __init__(self, in_ch, n_heads=8):
-#         super(AttnBlock, self).__init__()
-#         self.norm = nn.LayerNorm(in_ch)
-#         self.attn = nn.MultiheadAttention(embed_dim=in_ch, num_heads=n_heads)
-
-#     def forward(self, x):
-#         b, c, h, w = x.shape
-#         x = x.view(b, c, h * w).permute(2, 0, 1)  # (HW, B, C)
-#         x = self.norm(x)
-#         x, _ = self.attn(x, x, x)
-#         x = x.permute(1, 2, 0).view(b, c, h, w)  # (B, C, H, W)
-#         return x
-
-
-# class SinusoidalPositionEmbedding(nn.Module):
-#     def __init__(self, dim):
-#         super(SinusoidalPositionEmbedding, self).__init__()
-#         self.dim = dim
-
-#     def forward(self, timesteps):
-#         device = timesteps.device
-#         half_dim = self.dim // 2
-#         emb = math.log(10000) / (half_dim - 1)
-#         emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
-#         emb = timesteps[:, None] * emb[None, :]
-#         return torch.cat([torch.sin(emb), torch.cos(emb)], dim=-1)
-
 
 # class TimestepMLP(nn.Module):
 #     def __init__(self, input_dim, hidden_dim, output_dim):
