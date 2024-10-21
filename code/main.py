@@ -11,7 +11,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 # VARIABLES
-model_train = False  # Set to True to train the model
+model_train = True  # Set to True to train the model
 
 
 # FUNCTIONS
@@ -97,7 +97,7 @@ def train_model(model, dataloader, num_epochs=100, learning_rate=1e-4, device="c
             epochs_without_improvement = 0
             # Save the model when it improves
             torch.save(model.state_dict(), "unet_denoiser_best.pth")
-            print("Model improved and saved as unet_denoiser_best.pth")
+            print("Model improved and saved as unet_denoiser.pth")
         else:
             epochs_without_improvement += 1
             print(f"No improvement for {epochs_without_improvement}/{patience} epochs.")
@@ -109,7 +109,7 @@ def train_model(model, dataloader, num_epochs=100, learning_rate=1e-4, device="c
     print("Training complete!")
     
     # Plot the training loss
-    plt.figure(figsize=(10, 5))
+    plt.figure(figsize=(10, 10))
     plt.plot(train_losses, label='Training Loss')
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
@@ -140,25 +140,77 @@ def load_model(model_path, device="cuda"):
     print("Model loaded from", model_path)
     return model
 
-def denoise_image(model, image, timestep, device="cuda"):
+
+def estimate_gaussian_timestep(image, max_timesteps=1000):
+    """
+    Estimate the timestep for Gaussian noise based on the noise variance of the image.
+
+    Parameters:
+    - image: The noisy image tensor.
+    - max_timesteps: The maximum number of timesteps in the diffusion process.
+
+    Returns:
+    - timestep: The estimated timestep t' for Gaussian noise denoising.
+    """
+    # Calculate the noise variance of the image
+    noise_variance = image.var().item()
+    
+    # Define a threshold for minimum variance to avoid division by zero issues
+    threshold = 1e-6
+
+    # If variance is below the threshold, set a minimum timestep to avoid underflow
+    if noise_variance < threshold:
+        return 1  # Start from a minimum timestep instead of 0
+
+    # Compute alpha_t based on the noise variance in relation to its maximum possible value
+    alpha_t = min(1.0, noise_variance / (noise_variance + threshold))
+
+    # Estimate the timestep t' using a scaled value that fits the range [0, max_timesteps]
+    timestep = int(max_timesteps * (1 - alpha_t))  # Scales alpha_t to map to the timestep range
+
+    # Ensure the timestep is within the allowable range [1, max_timesteps]
+    timestep = max(1, min(timestep, max_timesteps))
+    return timestep
+
+
+
+def denoise(model, noisy_image, timestep, device="cuda"):
     # Set the model to evaluation mode
     model.eval()
-
+    
     # Move the image to the appropriate device
-    image = image.to(device)
-    timestep = torch.tensor([timestep], device=device)
+    current_image = noisy_image.to(device)
+    
+    # Ensure current_image has 4 dimensions (batch_size, channels, height, width)
+    if current_image.dim() == 3:  
+        current_image = current_image.unsqueeze(0)
 
-    # Generate Gaussian noise and add it to the image
-    noise = torch.randn_like(image)
-    noisy_image = image  # You can add noise if needed
+    # Convert the timestep to a tensor and move it to the appropriate device
+    timestep_tensor = torch.full((1,), timestep, dtype=torch.int, device=device)
 
-    # Forward pass to predict the noise with the model
     with torch.no_grad():
-        with autocast(device_type=device.type):
-            predicted_noise = model(noisy_image.unsqueeze(0), timestep)
-            denoised_image = noisy_image - predicted_noise.squeeze(0)  # Correcting this line
+        for t in range(timestep, -1, -1):
+            print(t)
+            # Convert the current timestep to a tensor for this iteration
+            timestep_tensor.fill_(t)  # Update the tensor value for each step
 
-    return denoised_image.cpu()
+            # Predict the noise component using the U-Net model, passing the timestep as a tensor
+            noise_pred = model(current_image, timestep_tensor)
+
+            # Compute the mean (mu_theta) for the reverse step
+            mu_theta = current_image - noise_pred
+
+            # Update the current image based on the reverse step
+            current_image = mu_theta + torch.randn_like(current_image) * torch.sqrt(torch.tensor(1 - (t / timestep)))
+
+            # Clip the intensities to the range [0, 1] as described in the paper
+            current_image = torch.clamp(current_image, 0.0, 1.0)
+
+    return current_image.cpu()
+
+
+
+
 
 # Main entry point
 if __name__ == "__main__":
@@ -167,7 +219,7 @@ if __name__ == "__main__":
 
     # Load parameters from the YAML file
     config = utils.load_yaml("cfg.yaml")
-
+    
     # Model parameters from config
     in_ch = config["model"]["in_ch"]
     out_ch = config["model"]["out_ch"]
@@ -178,6 +230,7 @@ if __name__ == "__main__":
     attn_resolutions = config["model"]["attn_resolutions"]
     dropout = config["model"]["dropout"]
     resamp_with_conv = config["model"]["resamp_with_conv"]
+    max_timesteps = config["model"]["max_timesteps"]
 
     # Initialize the UNet model
     model = UNet(
@@ -192,7 +245,6 @@ if __name__ == "__main__":
         resamp_with_conv=resamp_with_conv,
     )
     model = model.to(device)
-
     # Dataset directory from config
     image_directory = config["dataset"]["directory"]
     batch_size = config["training"]["batch_size"]
@@ -211,13 +263,11 @@ if __name__ == "__main__":
 
     # Load the model from the saved state for inference
     model = load_model("unet_denoiser_best.pth", device=device)
-
     # Assuming you have a single image to test on, load the image as a tensor
     test_image = utils.load_image_as_tensor("/home/jaltieri/ddpmx/dataset128/R_b344347d-2db8-432c-8ca7-f660af506286_160_unfiltered_frame_23.png", device=device)
-
     # Perform denoising on the test image
-    timestep = 10  # Example timestep value
-    denoised_image = denoise_image(model, test_image, timestep, device=device)
+    timestep = estimate_gaussian_timestep(test_image)
+    denoised_image = denoise(model, test_image, timestep, device=device)
 
     # Save or display the output denoised image
     utils.save_image(denoised_image, "denoised_output.png")
