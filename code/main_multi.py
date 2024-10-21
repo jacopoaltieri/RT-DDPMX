@@ -6,9 +6,11 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 import os
-from dataset import PNGDataset  # Assume this is your custom dataset
-from models import UNet  # Assume this is your UNet model class
-import utils  # For loading configuration
+from dataset import PNGDataset
+from models import UNet
+import utils
+from tqdm import tqdm
+import datetime
 
 def ddp_setup():
     """
@@ -30,7 +32,7 @@ class Trainer:
             print("Loading snapshot")
             self._load_snapshot(snapshot_path)
 
-        self.model = DDP(self.model, device_ids=[self.gpu_id],find_unused_parameters=True)
+        self.model = DDP(self.model, device_ids=[self.gpu_id], find_unused_parameters=True)
 
     def _load_snapshot(self, snapshot_path):
         loc = f"cuda:{self.gpu_id}"
@@ -57,17 +59,29 @@ class Trainer:
         return loss.item()
 
     def _run_epoch(self, epoch):
-        b_sz = len(next(iter(self.train_data))[0])
-        print(f"[GPU{self.gpu_id}] Epoch {epoch} | Batch size: {b_sz} | Steps: {len(self.train_data)}")
-        self.train_data.sampler.set_epoch(epoch)
-        epoch_loss = 0.0
+        if self.gpu_id == 0:
+            progress_bar = tqdm(self.train_data, desc=f"Epoch {epoch} [GPU{self.gpu_id}]", leave=False)
+        else:
+            progress_bar = self.train_data
 
-        for images, timesteps in self.train_data:
-            batch_loss = self._run_batch(images, timesteps)
-            epoch_loss += batch_loss
+        total_loss = 0
+        num_batches = 0
 
-        avg_loss = epoch_loss / len(self.train_data)
-        print(f"[GPU{self.gpu_id}] Epoch {epoch} completed. Average Loss: {avg_loss:.4f}")
+        for source, targets in progress_bar:
+            source = source.to(self.gpu_id)
+            targets = targets.to(self.gpu_id)
+            batch_loss = self._run_batch(source, targets)
+            total_loss += batch_loss
+            num_batches += 1
+
+            if self.gpu_id == 0:
+                progress_bar.set_postfix(loss=batch_loss)
+
+        avg_loss = total_loss / num_batches
+
+        if self.gpu_id == 0:
+            print(f"[{datetime.datetime.now()}] [GPU{self.gpu_id}] Epoch {epoch} completed. Average Loss: {avg_loss:.4f}")
+
         return avg_loss
 
     def _save_snapshot(self, epoch):
@@ -110,19 +124,22 @@ def prepare_dataloader(dataset: Dataset, batch_size: int):
     )
 
 def main(config):
-    ddp_setup()
-    
-    # Load training parameters from the config file
     batch_size = config["training"]["batch_size"]
     total_epochs = config["training"]["num_epochs"]
     save_every = config["training"]["save_every"]
     snapshot_path = config["training"]["snapshot_path"]
 
     dataset, model, optimizer = load_train_objs(config)
+
+    # Set up DDP for distributed training
+    ddp_setup()
     train_data = prepare_dataloader(dataset, batch_size)
+
+    # Create a Trainer instance and start training
     trainer = Trainer(model, train_data, optimizer, save_every, snapshot_path)
     trainer.train(total_epochs)
-    
+
+    # Destroy the process group after training
     destroy_process_group()
 
 if __name__ == "__main__":

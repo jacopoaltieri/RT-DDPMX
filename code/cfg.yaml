@@ -18,6 +18,8 @@ model:
 
 training:
   num_epochs: 50
-  learning_rate: 0.0001
   batch_size: 16
+  learning_rate: 0.0001
   cos_annealing_t_max: 100
+  save_every: 1
+  snapshot_path: /home/jaltieri/ddpmx/code/unet_snapshot.pt
