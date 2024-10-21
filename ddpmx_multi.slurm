@@ -1,9 +1,9 @@
 #!/bin/bash
 
-#SBATCH --job-name=ddpmx  
+#SBATCH --job-name=ddpmx_ddp  
 #SBATCH --error=ddpmx-%j.err
 #SBATCH --output=ddpmx-%j.out
-#SBATCH --ntasks=1                 # Number of tasks (1 per GPU)
+#SBATCH --ntasks=8                 # Number of tasks
 #SBATCH --gres=gpu:8               # Request 8 GPUs
 #SBATCH --mem=64000                # Memory per node
 
