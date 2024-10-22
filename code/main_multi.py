@@ -4,20 +4,13 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.distributed import init_process_group, destroy_process_group
+from torch.distributed import destroy_process_group
 import os
 from dataset import PNGDataset
 from models import UNet
 import utils
 from tqdm import tqdm
 import datetime
-
-def ddp_setup():
-    """
-    Set up the Distributed Data Parallel (DDP) environment.
-    """
-    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
-    init_process_group(backend="nccl")
 
 class Trainer:
     def __init__(self, model: torch.nn.Module, train_data: DataLoader, optimizer: torch.optim.Optimizer, save_every: int, snapshot_path: str) -> None:
@@ -28,6 +21,7 @@ class Trainer:
         self.save_every = save_every
         self.epochs_run = 0
         self.snapshot_path = snapshot_path
+        
         if os.path.exists(snapshot_path):
             print("Loading snapshot")
             self._load_snapshot(snapshot_path)
@@ -132,7 +126,7 @@ def main(config):
     dataset, model, optimizer = load_train_objs(config)
 
     # Set up DDP for distributed training
-    ddp_setup()
+    utils.ddp_setup()
     train_data = prepare_dataloader(dataset, batch_size)
 
     # Create a Trainer instance and start training
