@@ -12,7 +12,7 @@ max_timesteps = config["model"]["max_timesteps"]
 
 
 class PNGDataset(Dataset):
-    def __init__(self, image_dir, max_timesteps=1000):
+    def __init__(self, image_dir, max_timesteps=max_timesteps):
         self.image_paths = glob.glob(os.path.join(image_dir, "*.png"))
         self.max_timesteps = max_timesteps  # Maximum number of timesteps
 
@@ -29,9 +29,10 @@ class PNGDataset(Dataset):
         image = torch.tensor(image, dtype=torch.float32).unsqueeze(0)  # Add channel dimension
 
         # Randomly sample a timestep between 1 and max_timesteps for training
-        timestep = torch.randint(1, self.max_timesteps + 1, (1,)).item()
-
+        timestep = torch.randint(0, self.max_timesteps, (1,),  dtype=torch.long).item()
+        
         return image, timestep
+
     
 if __name__ == "__main__":
     pass

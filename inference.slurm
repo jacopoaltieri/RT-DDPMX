@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=ddpmx  
+#SBATCH --job-name=ddpmx_inference  
 #SBATCH --error=ddpmx-%j.err
 #SBATCH --output=ddpmx-%j.out
 #SBATCH --ntasks=1
