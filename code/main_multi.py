@@ -51,19 +51,36 @@ class Trainer:
         print(f"Resuming training from snapshot at Epoch {self.epochs_run}")
 
     def noise_estimation_loss(self, model, x0: torch.Tensor, t: torch.LongTensor, e: torch.Tensor, b: torch.Tensor, keepdim=False):
+        """
+        Compute the MSE loss between real noise (e) and predicted noise by the model.
+
+        Parameters:
+        - model: The U-Net model used for noise prediction.
+        - x0: The original image tensor.
+        - t: The timesteps at which noise is applied.
+        - e: The real Gaussian noise applied to the image.
+        - b: The beta schedule used for diffusion.
+        - keepdim: Whether to keep dimensions of the loss for each sample (default is False).
+
+        Returns:
+        - The noise estimation loss (MSE between real and predicted noise).
+        """
+
         # Compute alpha_t for the given timesteps t
         a = torch.cumprod(1 - b, dim=0).index_select(0, t).view(-1, 1, 1, 1).to(x0.device)
+
         # Generate the noisy images at timestep t
         x = x0 * a.sqrt() + e * (1.0 - a).sqrt()
-        
-        # Forward pass through the model
-        output = model(x, t)
-        
-        # Compute the loss (per-sample if keepdim=True)
+
+        # Forward pass through the model to predict the noise at timestep t
+        noise_pred = model(x, t)
+
+        # Compute the MSE loss between the real noise 'e' and the predicted noise 'noise_pred'
         if keepdim:
-            return (e - output).square().sum(dim=(1, 2, 3))
+            return (e - noise_pred).square().sum(dim=(1, 2, 3))
         else:
-            return (e - output).square().sum(dim=(1, 2, 3)).mean(dim=0)
+            return (e - noise_pred).square().mean(dim=(1, 2, 3)).mean(dim=0)
+
 
     def _run_batch(self, images, timesteps):
         self.optimizer.zero_grad()
@@ -71,7 +88,7 @@ class Trainer:
         timesteps = timesteps.to(self.gpu_id)
 
         # Get beta schedule and compute noise
-        beta_schedule = utils.get_beta_schedule('linear', beta_start=0.0001, beta_end=0.006, num_diffusion_timesteps=100)
+        beta_schedule = utils.get_beta_schedule('linear', beta_start=0.00001, beta_end=0.02, num_diffusion_timesteps=100)
         beta = torch.tensor(beta_schedule, dtype=torch.float32).to(images.device)
         
         # Sample Gaussian noise
