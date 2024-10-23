@@ -8,7 +8,7 @@ def Normalize(in_ch):
     return torch.nn.GroupNorm(num_groups=32, num_channels=in_ch, eps=1e-6, affine=True)
 
 
-def get_timestep_embedding(timesteps, embedding_dim):
+def get_timestep_embedding(timesteps, embedding_dim,device):
     """
     This matches the implementation in Denoising Diffusion Probabilistic Models:
     From Fairseq.
@@ -21,7 +21,7 @@ def get_timestep_embedding(timesteps, embedding_dim):
     half_dim = embedding_dim // 2
     emb = math.log(10000) / (half_dim - 1)
     emb = torch.exp(torch.arange(half_dim, dtype=torch.float32) * -emb)
-    emb = emb.to(device=timesteps.device)
+    emb = emb.to(device=device)
     emb = timesteps.float()[:, None] * emb[None, :]
     emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)
     if embedding_dim % 2 == 1:  # zero pad
@@ -217,7 +217,7 @@ class UNet(nn.Module):
     def __init__(self, 
                  in_ch=1, 
                  out_ch=1, 
-                 ch=128, 
+                 ch=100, 
                  ch_mult=(1, 1, 2, 2, 4), 
                  num_res_blocks=2, 
                  attn_resolutions=[16], 
@@ -315,9 +315,9 @@ class UNet(nn.Module):
 
     def forward(self, x, t):
         assert x.shape[2] == x.shape[3] == self.resolution
-
+        device = t.device
         # timestep embedding
-        temb = get_timestep_embedding(t, self.ch)
+        temb = get_timestep_embedding(t, self.ch,device)
         temb = self.temb_mlp(temb)  # Pass through the MLP
 
         # downsampling
