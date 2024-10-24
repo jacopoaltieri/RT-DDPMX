@@ -73,51 +73,89 @@ def estimate_gaussian_timestep(image:torch.Tensor, betas:torch.Tensor):
 
 
 
+class GaussianDiffusion:
+    
+    def __init__(self, *, betas, device):
+        self.device = device
+        self.betas = betas.to(self.device)
+        self.alphas = 1 - self.betas
+        self.alphas_cumprod = torch.cumprod(self.alphas,dim=0)
+    
+    def diffuse(self, x0, t):
+        assert t <= self.betas.shape[0]
+        
+        if not isinstance(t,torch.Tensor):
+            t = torch.tensor(t).to(self.device)
+            
+        x0 = torch.tensor(x0).to(self.device)
+        eps = torch.randn_like(x0).to(self.device)
+        alpha_cumprod_t = self.alphas_cumprod.index_select(0,t)
+        
+        xt = torch.sqrt(alpha_cumprod_t)*x0 + \
+            torch.sqrt(1-alpha_cumprod_t)*eps
+        
+        return xt
+    
+    def denoise(self, xt, eps, t):
+        '''
+        predict x0 from eps
+        '''
+        assert xt.shape == eps.shape
+        
+        if not isinstance(t,torch.Tensor):
+            t = torch.tensor(t).to(self.device)
+        
+        xt = torch.tensor(xt).to(self.device)
+        alpha_cumprod_t = self.alphas_cumprod.index_select(0,t)
+        
+        # estimate x0 from the predicted epsilon and a estimated t
+        x0_pred = 1/torch.sqrt(alpha_cumprod_t)*xt - \
+                torch.sqrt(1-alpha_cumprod_t)/torch.sqrt(alpha_cumprod_t)*eps 
+        
+        return x0_pred.detach().cpu()
+    
+    def dist_compare(self, xt, eps, t):
+        assert xt.shape == eps.shape
+        
+        if not isinstance(t,torch.Tensor):
+            t = torch.tensor(t).to(self.device)
+        
+        xt = torch.tensor(xt).to(self.device)
+        alpha_cumprod_t = self.alphas_cumprod.index_select(0,t)
+        
+        # estimate x0 from the predicted epsilon and a estimated t
+        target = 1/torch.sqrt(alpha_cumprod_t)*xt 
+        predict = torch.sqrt(1-alpha_cumprod_t)/torch.sqrt(alpha_cumprod_t)*eps 
+        
+        return target, predict
+    
+    def reverse(self, xt, eps, t):
+        '''
+        predict x_{t-1} from x_{t} and eps
+        '''
+        if not isinstance(t,torch.Tensor):
+            t = torch.tensor(t).to(self.device)
+        
+        beta_t = self.betas.index_select(0,t)
+        alpha_t = self.alphas.index_select(0,t)
+        alpha_cumprod_t = self.alphas_cumprod.index_select(0,t)
+        alpha_cumprod_prev = self.alphas_cumprod.index_select(0,t-1)
+        
+        c1 = torch.sqrt(alpha_cumprod_prev)*beta_t / 1-alpha_cumprod_prev
+        c2 = torch.sqrt(alpha_t)*(1-alpha_cumprod_prev) / 1-alpha_cumprod_t
+        
+        x0_pred = self.denoise(xt, eps, t)
+        x_prev = c1*x0_pred + c2*xt
+        
+        return x_prev
+    
+    @staticmethod
+    def _to_nparray_(x):
+        x = x[0,0,:,:].detach().cpu().numpy()
 
-import torch
+        return x[:,:500]
 
-def denoise(model, noisy_image, timestep, beta_schedule, device="cuda"):
-    """
-    Denoise an image using a pre-trained DDPM model, starting from a specific timestep.
 
-    Parameters:
-    - model: The trained denoising model.
-    - noisy_image: The noisy image tensor to be denoised.
-    - timestep: The specific timestep to start denoising from.
-    - beta_schedule: The beta schedule used during training.
-    - device: Device to perform inference on (default: cuda:0).
-
-    Returns:
-    - current_image: The denoised image.
-    """
-    model.eval()  # Ensure model is in evaluation mode
-    current_image = noisy_image.to(device)
-
-    if current_image.dim() == 3:
-        current_image = current_image.unsqueeze(0)  # Add batch dimension if missing
-
-    # Ensure the timestep is valid
-    if timestep < 0 or timestep >= len(beta_schedule):
-        raise ValueError(f"Invalid timestep: {timestep}. Must be in range [0, {len(beta_schedule) - 1}]")
-
-    with torch.no_grad():
-        # Predict the noise using the model
-        timestep_tensor = torch.full((1,), timestep, dtype=torch.long, device=device)
-        noise_pred = model(current_image, timestep_tensor)
-
-        # Compute reverse process parameters for the current timestep
-        beta_t = beta_schedule[timestep]
-        alpha_t = torch.cumprod(1 - beta_schedule[:timestep + 1], dim=0)[-1].to(device)
-        alpha_t_bar_sqrt = alpha_t.sqrt()
-        one_minus_alpha_t_bar_sqrt = (1 - alpha_t).sqrt()
-
-        # Compute the denoised image step
-        current_image = (current_image - one_minus_alpha_t_bar_sqrt * noise_pred) / alpha_t_bar_sqrt
-
-        # Clamp the image values between 0 and 1
-        current_image = torch.clamp(current_image, 0.0, 1.0)
-
-    return current_image.cpu()
 
 
 def main(config):
@@ -126,17 +164,26 @@ def main(config):
     # Load the model from snapshot
     model = load_model(config, config["training"]["snapshot_path"], device=device)
 
+    beta_schedule = utils.get_beta_schedule('linear', beta_start=0.00001, beta_end=0.02, num_diffusion_timesteps=100)
+    betas = torch.from_numpy(beta_schedule).float().to(device)
+
+    sample = GaussianDiffusion(betas=betas,device=device)
     # Load a test image
     test_image = utils.load_image_as_tensor("/home/jaltieri/ddpmx/dataset128/R_b344347d-2db8-432c-8ca7-f660af506286_160_unfiltered_frame_23.png", device=device)
 
-    # Get beta schedule (same as used in training)
-    beta_schedule = torch.tensor(utils.get_beta_schedule('linear', beta_start=0.0001, beta_end=0.006, num_diffusion_timesteps=100)).to(device)
-
     # Estimate the appropriate timestep based on image variance
-    timestep = estimate_gaussian_timestep(test_image, beta_schedule)
-    timestep=2
+    timestep = estimate_gaussian_timestep(test_image, betas)
+    timestep= 9
+    timestep = torch.tensor([timestep], device=device)  # Wrap in a list to make it 1D
+
+    
+    eps_t = model(test_image, timestep)  
+
+
+    
     # Denoise the image starting from the estimated timestep
-    denoised_image = denoise(model, test_image, timestep, beta_schedule, device=device)
+    denoised_image = sample.denoise(test_image,eps_t,timestep)
+    # denoised_image = denoise(model, test_image, timestep, beta_schedule, device=device)
 
     # Save the denoised image to disk
     utils.save_image(denoised_image, "denoised_output2.png")

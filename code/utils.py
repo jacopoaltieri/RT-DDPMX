@@ -38,6 +38,7 @@ def load_image_as_tensor(image_path, device="cuda"):
 
     # Convert to a tensor and add a channel dimension to make it compatible with model input
     image_tensor = torch.tensor(image, dtype=torch.float32).unsqueeze(0)  # Shape: (1, H, W)
+    image_tensor = image_tensor.unsqueeze(0)  # Shape: (1, 1, H, W)
     image_tensor = image_tensor.to(device)
     return image_tensor
     
