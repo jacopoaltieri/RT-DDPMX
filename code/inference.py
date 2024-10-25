@@ -1,46 +1,10 @@
+import os
 import torch
 from models import UNet
 import numpy as np
 import utils
+from tqdm import tqdm  # Import tqdm for the progress bar
 
-def load_model(config, model_path: str, device: str) -> torch.nn.Module:
-    """
-    Load a pre-trained model from a .pt file.
-
-    Parameters:
-    - config: Configuration dictionary for the model.
-    - model_path: The path to the model file (.pt).
-    - device: The device to load the model onto (e.g., "cuda" or "cpu").
-
-    Returns:
-    - model: The loaded model.
-    """
-    # Create the model using parameters from config
-    model = UNet(
-        in_ch=config["model"]["in_ch"],
-        out_ch=config["model"]["out_ch"],
-        resolution=config["model"]["resolution"],
-        num_res_blocks=config["model"]["num_res_blocks"],
-        ch=config["model"]["ch"],
-        ch_mult=tuple(config["model"]["ch_mult"]),
-        attn_resolutions=config["model"]["attn_resolutions"],
-        dropout=config["model"]["dropout"],
-        resamp_with_conv=config["model"]["resamp_with_conv"],
-    )
-
-    # Load model weights
-    state_dict = torch.load(model_path, map_location=device)
-    if 'MODEL_STATE' in state_dict:
-        model.load_state_dict(state_dict['MODEL_STATE'])
-    else:
-        model.load_state_dict(state_dict)
-
-    model.to(device)
-    model.eval()  # Set the model to evaluation mode
-    return model
-
-
-import torch
 
 def estimate_timestep(image: torch.Tensor, betas: torch.Tensor, noise_type="gaussian"):
     """
@@ -88,9 +52,9 @@ def estimate_timestep(image: torch.Tensor, betas: torch.Tensor, noise_type="gaus
 def denoise_image(model, noisy_image, beta_schedule, starting_timestep):
     x_t = noisy_image
     
-    for t in reversed(range(1, starting_timestep+1)):
+    for t in reversed(range(1, starting_timestep + 1)):
         with torch.no_grad():
-            eta_theta = model(x_t,torch.tensor([t],device=x_t.device))
+            eta_theta = model(x_t, torch.tensor([t], device=x_t.device))
         
         beta_t = beta_schedule[t]
         beta_t = torch.tensor(beta_t, device=x_t.device) if not isinstance(beta_t, torch.Tensor) else beta_t
@@ -99,28 +63,58 @@ def denoise_image(model, noisy_image, beta_schedule, starting_timestep):
         
     return x_t.cpu()
 
+
+def process_image(config, image_path: str, output_folder: str, model, beta_schedule, device):
+    """
+    Process a single image for denoising.
+    """
+    # Load the image as a tensor
+    test_image = utils.load_image_as_tensor(image_path, device=device)
+    betas = torch.from_numpy(beta_schedule).float().to(device)
+
+    # Estimate the appropriate timestep based on image variance
+    timestep = estimate_timestep(test_image, betas, "gaussian")
+    print(f"Estimated timestep for {image_path}: {timestep}")
+
+    # Denoise the image starting from the estimated timestep
+    denoised_image = denoise_image(model, test_image, beta_schedule, timestep)
+
+    # Save the denoised image to disk with the original name plus a suffix
+    output_file_path = os.path.join(output_folder, f"{os.path.splitext(os.path.basename(image_path))[0]}_denoised.png")
+    utils.save_image(denoised_image, output_file_path)
+    print(f"Denoised image saved as: {output_file_path}")
+
+
+def process_images_in_folder(config, model, betas, input_folder: str, output_folder: str, device):
+    """
+    Process all images in a specified folder.
+    """
+    # Ensure the output folder exists
+    os.makedirs(output_folder, exist_ok=True)
+
+    # List all image files in the input folder
+    image_files = [f for f in os.listdir(input_folder) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+
+    for image_file in tqdm(image_files, desc="Processing images"):
+        image_path = os.path.join(input_folder, image_file)
+        process_image(config, image_path, output_folder, model, betas, device)
+
+
 def main(config):
+    input_path = "/home/jaltieri/ddpmx/dataset128/R_9598e90d-96cc-49a1-b8cf-51bc2c4d6517_30_unfiltered_frame_23.png"  # Change this to your input folder path
+    output_folder = "/home/jaltieri/ddpmx/"  # Output folder name
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # Load the model from snapshot
-    model = load_model(config, config["training"]["snapshot_path"], device=device)
-
+    model = utils.load_model(config, config["training"]["snapshot_path"], device=device)
     beta_schedule = utils.get_beta_schedule('linear', beta_start=0.00001, beta_end=0.02, num_diffusion_timesteps=100)
-    betas = torch.from_numpy(beta_schedule).float().to(device)
 
-    # Load a test image
-    test_image = utils.load_image_as_tensor("/home/jaltieri/ddpmx/dataset128/R_b344347d-2db8-432c-8ca7-f660af506286_160_unfiltered_frame_23.png", device=device)
-
-    # Estimate the appropriate timestep based on image variance
-
-    timestep = estimate_timestep(test_image,betas,"gaussian")
-    print(f"gaussian timestep: {timestep}")
-   
-    # Denoise the image starting from the estimated timestep
-    denoised_image = denoise_image(model,test_image,beta_schedule,timestep)
-
-    # Save the denoised image to disk
-    utils.save_image(denoised_image, "denoised_output.png")
+    if os.path.isfile(input_path):  # Check if the input is a single image
+        process_image(config, input_path, output_folder, model, beta_schedule, device)
+    elif os.path.isdir(input_path):  # Check if the input is a directory
+        process_images_in_folder(config, model, beta_schedule, input_path, output_folder, device)
+    else:
+        print(f"Input path '{input_path}' is neither a valid file nor a directory.")
 
 
 if __name__ == "__main__":
