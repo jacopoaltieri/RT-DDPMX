@@ -4,6 +4,7 @@ import os
 import torch
 from PIL import Image
 from torch.distributed import init_process_group
+from models import UNet
 
 def ddp_setup():
     """
@@ -102,6 +103,43 @@ def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_time
         raise NotImplementedError(beta_schedule)
     assert betas.shape == (num_diffusion_timesteps,)
     return betas
+ 
+def load_model(config, model_path: str, device: str) -> torch.nn.Module:
+    """
+    Load a pre-trained model from a .pt file.
+
+    Parameters:
+    - config: Configuration dictionary for the model.
+    - model_path: The path to the model file (.pt).
+    - device: The device to load the model onto (e.g., "cuda" or "cpu").
+
+    Returns:
+    - model: The loaded model.
+    """
+    # Create the model using parameters from config
+    model = UNet(
+        in_ch=config["model"]["in_ch"],
+        out_ch=config["model"]["out_ch"],
+        resolution=config["model"]["resolution"],
+        num_res_blocks=config["model"]["num_res_blocks"],
+        ch=config["model"]["ch"],
+        ch_mult=tuple(config["model"]["ch_mult"]),
+        attn_resolutions=config["model"]["attn_resolutions"],
+        dropout=config["model"]["dropout"],
+        resamp_with_conv=config["model"]["resamp_with_conv"],
+    )
+
+    # Load model weights
+    state_dict = torch.load(model_path, map_location=device)
+    if 'MODEL_STATE' in state_dict:
+        model.load_state_dict(state_dict['MODEL_STATE'])
+    else:
+        model.load_state_dict(state_dict)
+
+    model.to(device)
+    model.eval()  # Set the model to evaluation mode
+    return model 
+ 
         
 if __name__ == "__main__":
     pass
