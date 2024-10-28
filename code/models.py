@@ -247,7 +247,7 @@ class UNet(nn.Module):
         # downsampling
         self.conv_in = torch.nn.Conv2d(in_ch, self.ch, kernel_size=3, stride=1, padding=1)
 
-        curr_res = resolution
+        curr_res = self.resolution
         in_ch_mult = (1,) + ch_mult
         self.down = nn.ModuleList()
         block_in = None
