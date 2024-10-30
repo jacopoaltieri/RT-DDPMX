@@ -2,3 +2,5 @@ __pycache__
 dataset
 dataset128
 denoised_frames
+rois
+output
