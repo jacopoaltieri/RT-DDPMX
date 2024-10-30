@@ -167,51 +167,6 @@ class AttnBlock(nn.Module):
         return x + h_
 
 
-# class EfficientAttention(nn.Module):
-#     def __init__(self, in_ch, head_count=8):
-#         super().__init__()
-#         self.in_ch = in_ch
-#         self.head_count = head_count
-
-#         self.queries = nn.Conv2d(in_ch, in_ch, 1)
-#         self.reprojection = nn.Conv2d(in_ch, in_ch, 1)
-
-#     def forward(self, input_):
-#         n, _, h, w = input_.size()
-#         queries = self.queries(input_).reshape(n, self.in_ch, h * w)
-#         head_channels = self.in_ch // self.head_count
-
-#         attended_values = []
-#         for i in range(self.head_count):
-#             query = F.softmax(
-#                 queries[:, i * head_channels : (i + 1) * head_channels, :], dim=1
-#             )
-#             context = query @ query.transpose(1, 2)
-#             attended_value = (context.transpose(1, 2) @ query).reshape(
-#                 n, head_channels, h, w
-#             )
-#             attended_values.append(attended_value)
-
-#         aggregated_values = torch.cat(attended_values, dim=1)
-#         reprojected_value = self.reprojection(aggregated_values)
-#         attention = reprojected_value + input_
-
-#         return attention
-
-
-
-# class TimestepMLP(nn.Module):
-#     def __init__(self, input_dim, hidden_dim, output_dim):
-#         super(TimestepMLP, self).__init__()
-#         self.mlp = nn.Sequential(
-#             nn.Linear(input_dim, hidden_dim),
-#             nn.SiLU(),
-#             nn.Linear(hidden_dim, output_dim),
-#         )
-
-#     def forward(self, x):
-#         return self.mlp(x)
-
 
 class UNet(nn.Module):
     def __init__(self, 
