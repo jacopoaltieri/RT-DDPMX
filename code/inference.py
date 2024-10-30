@@ -3,7 +3,8 @@ import torch
 from models import UNet
 import numpy as np
 import utils
-from tqdm import tqdm  # Import tqdm for the progress bar
+from tqdm import tqdm
+from collections import defaultdict
 
 
 def estimate_timestep(image: torch.Tensor, betas: torch.Tensor, noise_type="gaussian"):
@@ -18,7 +19,6 @@ def estimate_timestep(image: torch.Tensor, betas: torch.Tensor, noise_type="gaus
     Returns:
     - int: Estimated diffusion timestep.
     """
-    
     # Calculate cumulative product of (1 - beta) over timesteps (alpha terms)
     alphas = 1 - betas
     alpha_cumprod = torch.cumprod(alphas, dim=0)
@@ -32,89 +32,100 @@ def estimate_timestep(image: torch.Tensor, betas: torch.Tensor, noise_type="gaus
     if noise_type.lower() == "gaussian":
         # Expected variance for Gaussian noise at each timestep
         expected_variances = 1 - alpha_cumprod
-
     elif noise_type.lower() == "poisson":
         # Adjusted expected variances for Poisson noise
         expected_variances = (1 - alpha_cumprod) * noise_variance
-
     else:
         raise ValueError("noise_type must be 'gaussian' or 'poisson'")
 
     # Find the closest expected variance to the observed image variance
     estimated_timestep = torch.abs(expected_variances - noise_variance).argmin()
-
-    # Ensure the timestep is within the valid range [1, len(betas) - 1]
-    estimated_timestep = max(1, min(estimated_timestep.item(), len(betas) - 1))
-    
+    estimated_timestep = max(1, min(estimated_timestep.item(), len(betas) - 1))  # Ensure within valid range
     return estimated_timestep
+
+
+def estimate_average_timestep_for_image(rois, betas, noise_type="gaussian"):
+    """
+    Estimate the average timestep based on the noise variance of all ROIs of the same image.
+
+    Parameters:
+    - rois (list of torch.Tensor): List of tensors, each representing a noisy ROI.
+    - betas (torch.Tensor): Beta values (variance schedule) used during diffusion training.
+    - noise_type (str): Type of noise ("gaussian" or "poisson").
+
+    Returns:
+    - int: Average estimated diffusion timestep for the image.
+    """
+    timesteps = []
+    for roi in rois:
+        estimated_timestep = estimate_timestep(roi, betas, noise_type)
+        timesteps.append(estimated_timestep)
+    
+    # Calculate average timestep and round to nearest integer
+    average_timestep = int(round(np.mean(timesteps)))
+    return average_timestep
 
 
 def denoise_image(model, noisy_image, beta_schedule, starting_timestep):
     x_t = noisy_image
-    
     for t in reversed(range(1, starting_timestep + 1)):
         with torch.no_grad():
             eta_theta = model(x_t, torch.tensor([t], device=x_t.device))
         
         beta_t = beta_schedule[t]
         beta_t = torch.tensor(beta_t, device=x_t.device) if not isinstance(beta_t, torch.Tensor) else beta_t
-
         x_t = (1 / torch.sqrt(1 - beta_t)) * (x_t - beta_t * eta_theta)
-        
     return x_t.cpu()
 
 
-def process_image(config, image_path: str, output_folder: str, model, beta_schedule, device):
+def process_images_in_folder_with_avg_timestep(config, model, betas, input_folder: str, output_folder: str, device):
     """
-    Process a single image for denoising.
+    Process all images in a specified folder, averaging timesteps for ROIs of the same image.
     """
-    # Load the image as a tensor
-    test_image = utils.load_image_as_tensor(image_path, device=device)
-    betas = torch.from_numpy(beta_schedule).float().to(device)
-
-    # Estimate the appropriate timestep based on image variance
-    timestep = estimate_timestep(test_image, betas, "gaussian")
-    print(f"Estimated timestep for {image_path}: {timestep}")
-
-    # Denoise the image starting from the estimated timestep
-    denoised_image = denoise_image(model, test_image, beta_schedule, timestep)
-
-    # Save the denoised image to disk with the original name plus a suffix
-    output_file_path = os.path.join(output_folder, f"{os.path.splitext(os.path.basename(image_path))[0]}_denoised.png")
-    utils.save_image(denoised_image, output_file_path)
-    print(f"Denoised image saved as: {output_file_path}")
-
-
-def process_images_in_folder(config, model, betas, input_folder: str, output_folder: str, device):
-    """
-    Process all images in a specified folder.
-    """
-    # Ensure the output folder exists
     os.makedirs(output_folder, exist_ok=True)
 
-    # List all image files in the input folder
-    image_files = [f for f in os.listdir(input_folder) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    # Dictionary to group ROIs by base image name
+    image_groups = defaultdict(list)
 
-    for image_file in tqdm(image_files, desc="Processing images"):
-        image_path = os.path.join(input_folder, image_file)
-        process_image(config, image_path, output_folder, model, betas, device)
+    # Group ROIs by base image name
+    for image_file in sorted(os.listdir(input_folder)):
+        if image_file.lower().endswith(('.png', '.jpg', '.jpeg')):
+            base_name = "_".join(image_file.split("_")[:2])  # Adjust based on ROI naming format
+            image_path = os.path.join(input_folder, image_file)
+            image_groups[base_name].append(image_path)
+
+    # Process each group of ROIs
+    for base_name, image_paths in tqdm(image_groups.items(), desc="Processing image groups"):
+        # Load all ROIs for the image
+        rois = [utils.load_image_as_tensor(image_path, device=device) for image_path in image_paths]
+        betas_tensor = torch.from_numpy(betas).float().to(device)
+
+        # Estimate the average timestep for the ROIs of this image
+        avg_timestep = estimate_average_timestep_for_image(rois, betas_tensor, "gaussian")
+        print(f"Average timestep for {base_name}: {avg_timestep}")
+
+        # Denoise each ROI using the averaged timestep
+        for image_path in image_paths:
+            test_image = utils.load_image_as_tensor(image_path, device=device)
+            denoised_image = denoise_image(model, test_image, betas, avg_timestep)
+
+            # Save the denoised image
+            output_file_path = os.path.join(output_folder, f"{os.path.splitext(os.path.basename(image_path))[0]}_denoised.png")
+            utils.save_image(denoised_image, output_file_path)
+            print(f"Denoised image saved as: {output_file_path}")
 
 
 def main(config):
-    input_path = "/home/jaltieri/ddpmx/dataset128/R_9598e90d-96cc-49a1-b8cf-51bc2c4d6517_30_unfiltered_frame_23.png"  # Change this to your input folder path
-    output_folder = "/home/jaltieri/ddpmx/"  # Output folder name
+    input_path = "/home/jaltieri/ddpmx/rois"
+    output_folder = "/home/jaltieri/ddpmx/output"
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # Load the model from snapshot
     model = utils.load_model(config, config["training"]["snapshot_path"], device=device)
     beta_schedule = utils.get_beta_schedule('linear', beta_start=0.00001, beta_end=0.02, num_diffusion_timesteps=100)
 
-    if os.path.isfile(input_path):  # Check if the input is a single image
-        process_image(config, input_path, output_folder, model, beta_schedule, device)
-    elif os.path.isdir(input_path):  # Check if the input is a directory
-        process_images_in_folder(config, model, beta_schedule, input_path, output_folder, device)
-    else:
-        print(f"Input path '{input_path}' is neither a valid file nor a directory.")
+    # Process all ROIs in the input folder
+    process_images_in_folder_with_avg_timestep(config, model, beta_schedule, input_path, output_folder, device)
 
 
 if __name__ == "__main__":

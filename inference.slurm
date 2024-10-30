@@ -5,6 +5,7 @@
 #SBATCH --output=ddpmx-%j.out
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:1
+#SBATCH --partition=longrun
 #SBATCH --mem=64000
 
 module load anaconda/3.23.07
