@@ -68,7 +68,7 @@ class Downsample(nn.Module):
     def forward(self, x):
         if self.with_conv:
             pad = (0, 1, 0, 1)
-            x = F.pad(x, pad, mode="constant", value=0)
+            x = F.pad(x, pad, mode="reflect", value=0)
             x = self.conv(x)
         else:
             x = F.avg_pool2d(x, kernel_size=2, stride=2)
