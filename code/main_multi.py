@@ -211,21 +211,26 @@ class Trainer:
         print(f"Epoch {epoch} | Training snapshot saved at {self.snapshot_path}")
 
     def train(self, max_epochs: int):
-        for epoch in range(self.epochs_run, max_epochs+1):
+        for epoch in range(self.epochs_run, max_epochs + 1):
             avg_loss = self._run_epoch(epoch)
             avg_val_loss = self._run_validation()
             
-            # Early stopping logic
-            if avg_val_loss < self.best_val_loss:
-                self.best_val_loss = avg_val_loss
-                self.epochs_since_improvement = 0
-                if self.gpu_id == 0:
-                    self._save_snapshot(epoch)  # Save snapshot if validation loss improved
+            # Early stopping logic only if patience is set
+            if self.patience  > 0:
+                if avg_val_loss < self.best_val_loss:
+                    self.best_val_loss = avg_val_loss
+                    self.epochs_since_improvement = 0
+                    if self.gpu_id == 0:
+                        self._save_snapshot(epoch)  # Save snapshot if validation loss improved
+                else:
+                    self.epochs_since_improvement += 1
+                    if self.epochs_since_improvement >= self.patience:
+                        print(f"Early stopping triggered after {self.patience} epochs with no improvement.")
+                        break
+            # Optional: Handle case when patience is not used
             else:
-                self.epochs_since_improvement += 1
-                if self.epochs_since_improvement >= self.patience:
-                    print(f"Early stopping triggered after {self.patience} epochs with no improvement.")
-                    break
+                if self.gpu_id == 0:
+                    self._save_snapshot(epoch)  # Save snapshot every epoch if not using patience
                 
         plt.figure(figsize=(10, 10))
         plt.plot(range(len(self.losses)), self.losses, label='Training Loss')
