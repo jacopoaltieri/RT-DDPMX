@@ -2,7 +2,7 @@
 dataset:
   seq_folder: C:/Users/jacop/Desktop/research_fellowship/16bit_tifs
   input_size: [128,128]
-  directory: /home/jaltieri/ddpmx/dataset128
+  directory: /home/jaltieri/ddpmx/rois
   train_ratio: 0.8
   val_ratio: 0.1
 
@@ -24,5 +24,5 @@ training:
   learning_rate: 0.0001
   cos_annealing_t_max: 100
   save_every: 1
-  early_stopping_patience: 10
+  early_stopping_patience: 0 # if 0 early stopping is disabled
   snapshot_path: /home/jaltieri/ddpmx/code/unet_snapshot.pt
