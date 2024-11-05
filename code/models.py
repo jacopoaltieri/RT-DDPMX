@@ -2,6 +2,7 @@ import math
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from torch.profiler import profile, record_function, ProfilerActivity
 
 
 def Normalize(in_ch):
@@ -172,7 +173,7 @@ class UNet(nn.Module):
     def __init__(self, 
                  in_ch=1, 
                  out_ch=1, 
-                 ch=100, 
+                 ch=128, 
                  ch_mult=(1, 1, 2, 2, 4), 
                  num_res_blocks=2, 
                  attn_resolutions=[16], 
@@ -310,15 +311,46 @@ class UNet(nn.Module):
     
     
 if __name__ == "__main__":
+    def calculate_model_size(model):
+        # Calculate total parameter size in bytes
+        total_params = sum(param.numel() * param.element_size() for param in model.parameters())
+        # Convert to megabytes
+        total_mb = total_params / (1024 ** 2)
+        print(f"Model Size: {total_mb:.4f} MB")
+        return total_mb
+
+    def profile_model(model, input_tensor, timestep_tensor):
+        # Use PyTorch profiler to measure computation cost
+        with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+            with record_function("model_inference"):
+                output = model(input_tensor, timestep_tensor)
+        print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+        return prof
+    
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
     # Create an instance of the UNet model
-    model = UNet(in_ch=1, out_ch=1, resolution=512)
+    model = UNet(in_ch=1, out_ch=1, resolution=128).to(device)
 
     # Generate a random input tensor of shape (batch_size, channels, height, width)
-    x = torch.randn(4, 1, 512, 512)
+    x = torch.randn(16, 1, 128, 128).to(device)
 
     # Generate random timesteps tensor for testing
-    t = torch.randint(0, 1000, (4,))  # Timesteps should be a 1D tensor with length equal to batch size
+    t = torch.randint(0, 100, (16,)).to(device)  # Timesteps should be a 1D tensor with length equal to batch size
+    
+    model_size = calculate_model_size(model)
 
+    # Profile model with input tensor
+    prof = profile_model(model, x, t)
+
+    # Output the total CUDA time and memory allocated for insight
+    total_cuda_time = sum(evt.cuda_time for evt in prof.events())
+    total_cuda_memory = torch.cuda.memory_allocated() / (1024 ** 3)
+    print(f"Total CUDA Time: {total_cuda_time / 1000:.2f} ms")
+    print(f"Total CUDA Memory Allocated: {total_cuda_memory:.4f} GB")
+
+    # Clean up memory after profiling
+    torch.cuda.empty_cache()
     # Forward pass through the model
     output = model(x, t)
 
