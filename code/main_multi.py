@@ -240,6 +240,8 @@ class Trainer:
         plt.title('Training and Validation Loss Over Epochs')
         plt.legend()
         plt.grid()
+        plt.minorticks_on()
+        plt.tick_params(axis='both', which='both', direction='in')
         plt.savefig('training_loss_plot.png')
         plt.close()
         
