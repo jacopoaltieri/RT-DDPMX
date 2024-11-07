@@ -14,8 +14,6 @@ def get_timestep_embedding(timesteps, embedding_dim,device):
     This matches the implementation in Denoising Diffusion Probabilistic Models:
     From Fairseq.
     Build sinusoidal embeddings.
-    This matches the implementation in tensor2tensor, but differs slightly
-    from the description in Section 3.5 of "Attention Is All You Need".
     """
     assert len(timesteps.shape) == 1
 
