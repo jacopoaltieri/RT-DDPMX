@@ -6,8 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 import utils
 
 
-
-def process_image(file_path, output_folder, target_size):
+def process_image(file_path, output_folder, roi_size):
     # Read the multi-page TIFF image
     tiff = cv2.imreadmulti(file_path, [], cv2.IMREAD_UNCHANGED)
 
@@ -16,28 +15,36 @@ def process_image(file_path, output_folder, target_size):
         return
 
     frames = tiff[1]
+    num_frames = len(frames)
 
-    for i, frame in enumerate(frames):
-        # Rescale the image to range [-1, 1]
-        frame = frame.astype(np.float32)  # Convert to float32 for scaling
-        frame = (frame / 32767.5) - 1  # Assuming the 16-bit images are unsigned (0-65535)
+    # Process only the middle frame
+    middle_frame_index = num_frames // 2
+    frame = frames[middle_frame_index]
 
-        # Resize the frame to the target size
-        img_resized = cv2.resize(frame, target_size, interpolation=cv2.INTER_AREA)
+    # Calculate the number of ROIs along the width and height
+    frame_height, frame_width = frame.shape
+    roi_height, roi_width = roi_size
+    num_rois_x = frame_width // roi_width
+    num_rois_y = frame_height // roi_height
 
-        # Convert back to 16-bit integer (optional, for storage)
-        img_resized = np.clip((img_resized + 1) * 32767.5, 0, 65535).astype(np.uint16)
+    # Loop to extract each ROI and save it
+    for y in range(num_rois_y):
+        for x in range(num_rois_x):
+            # Extract ROI
+            x_start = x * roi_width
+            y_start = y * roi_height
+            roi = frame[y_start:y_start + roi_height, x_start:x_start + roi_width]
 
-        # Construct the output file name with frame index
-        output_file_name = f"{os.path.splitext(os.path.basename(file_path))[0]}_frame_{i+1}.png"
-        output_file_path = os.path.join(output_folder, output_file_name)
+            # Construct the output file name with frame and ROI indices
+            output_file_name = f"{os.path.splitext(os.path.basename(file_path))[0]}_frame_{middle_frame_index + 1}_roi_{y + 1}_{x + 1}.png"
+            output_file_path = os.path.join(output_folder, output_file_name)
 
-        # Save the resized frame
-        cv2.imwrite(output_file_path, img_resized)
+            # Save the ROI as a 16-bit PNG
+            cv2.imwrite(output_file_path, roi)
+            print(f"Saved {output_file_path}")
 
-        print(f"Saved {output_file_path}")
 
-def process_folder(input_folder, output_folder, target_size, max_workers):
+def process_folder(input_folder, output_folder, roi_size, max_workers):
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
@@ -45,7 +52,8 @@ def process_folder(input_folder, output_folder, target_size, max_workers):
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for file_path in files:
-            executor.submit(process_image, file_path, output_folder, target_size)
+            executor.submit(process_image, file_path, output_folder, roi_size)
+
 
 if __name__ == "__main__":
     
