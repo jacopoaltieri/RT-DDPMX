@@ -9,7 +9,7 @@ def Normalize(in_ch):
     return torch.nn.GroupNorm(num_groups=32, num_channels=in_ch, eps=1e-6, affine=True)
 
 
-def get_timestep_embedding(timesteps, embedding_dim,device):
+def get_timestep_embedding(timesteps, embedding_dim, device):
     """
     This matches the implementation in Denoising Diffusion Probabilistic Models:
     From Fairseq.
@@ -104,8 +104,7 @@ class ResNetBlock(nn.Module):
                 )
 
     def forward(self, x, temb):
-        h = x
-        h = self.n1(h)
+        h = self.n1(x)
         h = self.silu(h)
         h = self.c1(h)
 
@@ -139,8 +138,7 @@ class AttnBlock(nn.Module):
         )
 
     def forward(self, x):
-        h_ = x
-        h_ = self.norm(h_)
+        h_ = self.norm(x)
         q = self.q(h_)
         k = self.k(h_)
         v = self.v(h_)
@@ -304,8 +302,7 @@ class UNet(nn.Module):
         # end
         h = self.norm_out(h)
         h = self.silu(h)
-        h = self.conv_out(h)
-        return h
+        return self.conv_out(h)
     
     
 if __name__ == "__main__":
