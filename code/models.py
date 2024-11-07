@@ -174,11 +174,11 @@ class UNet(nn.Module):
                  in_ch=1, 
                  out_ch=1, 
                  ch=128, 
-                 ch_mult=(1, 1, 2, 2, 4), 
+                 ch_mult=(1, 1, 2, 4), 
                  num_res_blocks=2, 
                  attn_resolutions=[16], 
                  dropout=0.1, 
-                 resolution=256, 
+                 resolution=128, 
                  resamp_with_conv=True):
         super().__init__()
         

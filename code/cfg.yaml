@@ -12,7 +12,7 @@ model:
   resolution: 128
   num_res_blocks: 2
   ch: 128
-  ch_mult: [1, 1, 2, 2, 4]
+  ch_mult: [1, 1, 2, 4]
   attn_resolutions: [16]
   dropout: 0.1
   resamp_with_conv: True

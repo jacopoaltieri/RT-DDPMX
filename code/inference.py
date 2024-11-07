@@ -96,31 +96,45 @@ def process_images_in_folder_with_avg_timestep(config, model, betas, input_folde
 
     # Process each group of ROIs
     for base_name, image_paths in tqdm(image_groups.items(), desc="Processing image groups"):
-        # Load all ROIs for the image
         rois = [utils.load_image_as_tensor(image_path, device=device) for image_path in image_paths]
         betas_tensor = torch.from_numpy(betas).float().to(device)
-
+        
         # Estimate the average timestep for the ROIs of this image
         avg_timestep = estimate_average_timestep_for_image(rois, betas_tensor, "gaussian")
         print(f"Average timestep for {base_name}: {avg_timestep}")
 
-        # Denoise each ROI using the averaged timestep
+        # Start timing for the entire image
+        image_start_time = time.time()
+        
         for image_path in image_paths:
             test_image = utils.load_image_as_tensor(image_path, device=device)
-            denoised_image = denoise_image(model, test_image, betas, avg_timestep)
+            
+            # Start timing for a single ROI denoising
+            roi_start_time = time.time()
+            
+            # Perform denoising
+            denoised_image = denoise_image(model, test_image, betas, avg_timestep, fast_sampling=fast_sampling)
+            
+            # Calculate and print time taken for the ROI
+            roi_time = time.time() - roi_start_time
+            print(f"Time to denoise ROI '{image_path}': {roi_time:.2f} seconds")
 
             # Save the denoised image
             output_file_path = os.path.join(output_folder, f"{os.path.splitext(os.path.basename(image_path))[0]}_denoised.png")
             utils.save_image(denoised_image, output_file_path)
             print(f"Denoised image saved as: {output_file_path}")
 
+        # Calculate and print total time taken for all ROIs of the image
+        total_image_time = time.time() - image_start_time
+        print(f"Total time to denoise image '{base_name}': {total_image_time:.2f} seconds\n")
+
 
 def main(config):
     input_path = "/home/jaltieri/ddpmx/rois"
-    output_folder = "/home/jaltieri/ddpmx/output"
+    output_folder = "/home/jaltieri/ddpmx/output_fastefficient"
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    # Load the model from snapshot
+    # Load model and beta schedule
     model = utils.load_model(config, config["training"]["snapshot_path"], device=device)
     beta_schedule = utils.get_beta_schedule('linear', beta_start=0.00001, beta_end=0.02, num_diffusion_timesteps=100)
 
