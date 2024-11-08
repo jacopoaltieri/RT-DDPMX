@@ -130,9 +130,8 @@ class AttnBlock(nn.Module):
         self.in_ch = in_ch
 
         self.norm = Normalize(in_ch)
-        self.q = torch.nn.Conv2d(in_ch, in_ch, kernel_size=1, stride=1, padding=0)
-        self.k = torch.nn.Conv2d(in_ch, in_ch, kernel_size=1, stride=1, padding=0)
-        self.v = torch.nn.Conv2d(in_ch, in_ch, kernel_size=1, stride=1, padding=0)
+        self.q = self.k =self.v = torch.nn.Conv2d(in_ch, in_ch, kernel_size=1, stride=1, padding=0)
+
         self.proj_out = torch.nn.Conv2d(
             in_ch, in_ch, kernel_size=1, stride=1, padding=0
         )
