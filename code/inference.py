@@ -1,10 +1,11 @@
 import os
 import torch
-from models import UNet
+import time
 import numpy as np
 import utils
 from tqdm import tqdm
 from collections import defaultdict
+from torch.cuda.amp import autocast
 
 
 def estimate_timestep(image: torch.Tensor, betas: torch.Tensor, noise_type="gaussian"):
@@ -70,7 +71,9 @@ def denoise_image(model, noisy_image, beta_schedule, starting_timestep):
     x_t = noisy_image
     for t in reversed(range(1, starting_timestep + 1)):
         with torch.no_grad():
-            eta_theta = model(x_t, torch.tensor([t], device=x_t.device))
+            # Use autocast for mixed precision inference
+            with autocast():
+                eta_theta = model(x_t, torch.tensor([t], device=x_t.device))
         
         beta_t = beta_schedule[t]
         beta_t = torch.tensor(beta_t, device=x_t.device) if not isinstance(beta_t, torch.Tensor) else beta_t
@@ -113,7 +116,7 @@ def process_images_in_folder_with_avg_timestep(config, model, betas, input_folde
             roi_start_time = time.time()
             
             # Perform denoising
-            denoised_image = denoise_image(model, test_image, betas, avg_timestep, fast_sampling=fast_sampling)
+            denoised_image = denoise_image(model, test_image, betas, avg_timestep)
             
             # Calculate and print time taken for the ROI
             roi_time = time.time() - roi_start_time
@@ -130,8 +133,8 @@ def process_images_in_folder_with_avg_timestep(config, model, betas, input_folde
 
 
 def main(config):
-    input_path = "/home/jaltieri/ddpmx/rois"
-    output_folder = "/home/jaltieri/ddpmx/output_fastefficient"
+    input_path = "/home/jaltieri/ddpmx/rois256"
+    output_folder = "/home/jaltieri/ddpmx/output_256v2"
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # Load model and beta schedule
@@ -143,5 +146,5 @@ def main(config):
 
 
 if __name__ == "__main__":
-    config = utils.load_yaml("cfg.yaml")
+    config = utils.load_yaml("cfg_256.yaml")
     main(config)
