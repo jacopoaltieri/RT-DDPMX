@@ -186,17 +186,17 @@ class UNet(nn.Module):
     def __init__(self, 
                  in_ch=1, 
                  out_ch=1, 
-                 ch=128, 
+                 ch=96, 
                  ch_mult=(1, 1, 2, 4), 
                  num_res_blocks=2, 
                  attn_resolutions=[16], 
                  dropout=0.1, 
-                 resolution=128, 
+                 resolution=256, 
                  resamp_with_conv=True):
         super().__init__()
         
         self.ch = ch
-        self.temb_ch = self.ch * 4
+        self.temb_ch = self.ch * 2
         self.temb_mlp = TimestepMLP(self.ch, self.temb_ch, self.temb_ch)
 
         self.num_resolutions = len(ch_mult)
