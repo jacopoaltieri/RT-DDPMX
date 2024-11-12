@@ -124,44 +124,62 @@ class ResNetBlock(nn.Module):
         return x + h
 
 
-class AttnBlock(nn.Module):
+# class AttnBlock(nn.Module):
+#     def __init__(self, in_ch):
+#         super().__init__()
+#         self.in_ch = in_ch
+
+#         self.norm = Normalize(in_ch)
+#         self.q = self.k =self.v = torch.nn.Conv2d(in_ch, in_ch, kernel_size=1, stride=1, padding=0)
+
+#         self.proj_out = torch.nn.Conv2d(in_ch, in_ch, kernel_size=1, stride=1, padding=0)
+
+#     def forward(self, x):
+#         h_ = self.norm(x)
+#         q = self.q(h_)
+#         k = self.k(h_)
+#         v = self.v(h_)
+
+#         # compute attention
+#         b, c, h, w = q.shape
+#         q = q.reshape(b, c, h * w)
+#         q = q.permute(0, 2, 1)  # b,hw,c
+#         k = k.reshape(b, c, h * w)  # b,c,hw
+#         w_ = torch.bmm(q, k)  # b,hw,hw    w[b,i,j]=sum_c q[b,i,c]k[b,c,j]
+#         w_ = w_ * (int(c) ** (-0.5))
+#         w_ = torch.nn.functional.softmax(w_, dim=2)
+
+#         # attend to values
+#         v = v.reshape(b, c, h * w)
+#         w_ = w_.permute(0, 2, 1)  # b,hw,hw (first hw of k, second of q)
+#         # b, c,hw (hw of q) h_[b,c,j] = sum_i v[b,c,i] w_[b,i,j]
+#         h_ = torch.bmm(v, w_)
+#         h_ = h_.reshape(b, c, h, w)
+
+#         h_ = self.proj_out(h_)
+
+#         return x + h_
+
+
+class AttnBlock(nn.Module): # Simplified Channel Attention
     def __init__(self, in_ch):
         super().__init__()
         self.in_ch = in_ch
 
-        self.norm = Normalize(in_ch)
-        self.q = self.k =self.v = torch.nn.Conv2d(in_ch, in_ch, kernel_size=1, stride=1, padding=0)
-
-        self.proj_out = torch.nn.Conv2d(
-            in_ch, in_ch, kernel_size=1, stride=1, padding=0
+        # Using AdaptiveAvgPool2d to pool the feature map to a single value per channel
+        # Followed by a 1x1 convolution to learn channel-wise attention
+        self.sca = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),  # Pooling the feature map to 1x1 spatial resolution
+            nn.Conv2d(in_channels=in_ch, out_channels=in_ch, kernel_size=1, padding=0, stride=1, groups=1, bias=True)
         )
 
     def forward(self, x):
-        h_ = self.norm(x)
-        q = self.q(h_)
-        k = self.k(h_)
-        v = self.v(h_)
+        # Apply the simplified channel attention mechanism
+        attention = self.sca(x)  # Generate channel attention
+        attention = torch.sigmoid(attention)  # Apply sigmoid to get a scale between 0 and 1
 
-        # compute attention
-        b, c, h, w = q.shape
-        q = q.reshape(b, c, h * w)
-        q = q.permute(0, 2, 1)  # b,hw,c
-        k = k.reshape(b, c, h * w)  # b,c,hw
-        w_ = torch.bmm(q, k)  # b,hw,hw    w[b,i,j]=sum_c q[b,i,c]k[b,c,j]
-        w_ = w_ * (int(c) ** (-0.5))
-        w_ = torch.nn.functional.softmax(w_, dim=2)
-
-        # attend to values
-        v = v.reshape(b, c, h * w)
-        w_ = w_.permute(0, 2, 1)  # b,hw,hw (first hw of k, second of q)
-        # b, c,hw (hw of q) h_[b,c,j] = sum_i v[b,c,i] w_[b,i,j]
-        h_ = torch.bmm(v, w_)
-        h_ = h_.reshape(b, c, h, w)
-
-        h_ = self.proj_out(h_)
-
-        return x + h_
-
+        # Scale the input feature map with the attention weights
+        return x * attention
 
 
 class UNet(nn.Module):
@@ -268,7 +286,7 @@ class UNet(nn.Module):
         assert x.shape[2] == x.shape[3] == self.resolution
         device = t.device
         # timestep embedding
-        temb = get_timestep_embedding(t, self.ch,device)
+        temb = get_timestep_embedding(t, self.ch, device)
         temb = self.temb_mlp(temb)  # Pass through the MLP
 
         # downsampling
