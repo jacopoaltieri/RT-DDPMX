@@ -33,6 +33,8 @@ def estimate_timestep(image: torch.Tensor, betas: torch.Tensor, noise_type="gaus
     if noise_type.lower() == "gaussian":
         # Expected variance for Gaussian noise at each timestep
         expected_variances = 1 - alpha_cumprod
+    
+    #FIXME
     elif noise_type.lower() == "poisson":
         # Adjusted expected variances for Poisson noise
         expected_variances = (1 - alpha_cumprod) * noise_variance
