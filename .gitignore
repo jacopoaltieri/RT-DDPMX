@@ -1,6 +1,10 @@
 __pycache__
-dataset
-dataset128
+dataset*
 denoised_frames
-rois
-output
+rois*
+output*
+den*
+fullsize
+original
+tifs
+resized*

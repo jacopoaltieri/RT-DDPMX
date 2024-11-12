@@ -53,8 +53,8 @@ def patch_rois_together(base_name, roi_folder, output_folder):
 
 if __name__ == "__main__":
     # Parameters
-    roi_folder = "/home/jaltieri/ddpmx/rois"
-    output_folder = "/home/jaltieri/ddpmx/original"
+    roi_folder = "/home/jaltieri/ddpmx/output_256sca"
+    output_folder = "/home/jaltieri/ddpmx/den256sca"
 
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)

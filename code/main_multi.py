@@ -242,7 +242,7 @@ class Trainer:
         plt.grid()
         plt.minorticks_on()
         plt.tick_params(axis='both', which='both', direction='in')
-        plt.savefig('training_loss_plot.png')
+        plt.savefig('256_96_loss.png')
         plt.close()
         
         
@@ -306,5 +306,5 @@ def main(config):
     destroy_process_group()
 
 if __name__ == "__main__":
-    config = utils.load_yaml("cfg.yaml")
+    config = utils.load_yaml("cfg_256.yaml")
     main(config)
