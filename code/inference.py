@@ -1,4 +1,5 @@
 import os
+import re
 import torch
 import time
 import numpy as np
@@ -6,7 +7,6 @@ import utils
 from tqdm import tqdm
 from collections import defaultdict
 from torch.cuda.amp import autocast
-
 
 def estimate_timestep(image: torch.Tensor, betas: torch.Tensor, noise_type="gaussian"):
     """
@@ -33,6 +33,7 @@ def estimate_timestep(image: torch.Tensor, betas: torch.Tensor, noise_type="gaus
     if noise_type.lower() == "gaussian":
         # Expected variance for Gaussian noise at each timestep
         expected_variances = 1 - alpha_cumprod
+    #FIXME
     elif noise_type.lower() == "poisson":
         # Adjusted expected variances for Poisson noise
         expected_variances = (1 - alpha_cumprod) * noise_variance
@@ -67,13 +68,25 @@ def estimate_average_timestep_for_image(rois, betas, noise_type="gaussian"):
     return average_timestep
 
 
-def denoise_image(model, noisy_image, beta_schedule, starting_timestep):
-    x_t = noisy_image
+def denoise_image(model, noisy_images, beta_schedule, starting_timestep):
+    """
+    Perform denoising on a batch of noisy images.
+    
+    Parameters:
+    - model (torch.nn.Module): Denoising model.
+    - noisy_images (torch.Tensor): Batch of noisy images of shape (batch_size, C, H, W).
+    - beta_schedule (torch.Tensor): Beta values (variance schedule) used during diffusion training.
+    - starting_timestep (int): Starting timestep for denoising.
+    
+    Returns:
+    - torch.Tensor: Batch of denoised images of shape (batch_size, C, H, W).
+    """
+    x_t = noisy_images
     for t in reversed(range(1, starting_timestep + 1)):
         with torch.no_grad():
             # Use autocast for mixed precision inference
             with autocast():
-                eta_theta = model(x_t, torch.tensor([t], device=x_t.device))
+                eta_theta = model(x_t, torch.full((x_t.shape[0],), t, device=x_t.device, dtype=torch.int64))
         
         beta_t = beta_schedule[t]
         beta_t = torch.tensor(beta_t, device=x_t.device) if not isinstance(beta_t, torch.Tensor) else beta_t
@@ -81,60 +94,53 @@ def denoise_image(model, noisy_image, beta_schedule, starting_timestep):
     return x_t.cpu()
 
 
-def process_images_in_folder_with_avg_timestep(config, model, betas, input_folder: str, output_folder: str, device):
-    """
-    Process all images in a specified folder, averaging timesteps for ROIs of the same image.
-    """
+
+def process_folder_with_avg_t(model, betas, input_folder: str, output_folder: str, device):
     os.makedirs(output_folder, exist_ok=True)
 
     # Dictionary to group ROIs by base image name
     image_groups = defaultdict(list)
 
-    # Group ROIs by base image name
+    # Define a regex pattern to match the image prefix up to "_unfiltered_frame"
+    pattern = re.compile(r"(.+_unfiltered_frame)")
+
+    # Group ROIs by the extracted base name
     for image_file in sorted(os.listdir(input_folder)):
         if image_file.lower().endswith(('.png', '.jpg', '.jpeg')):
-            base_name = "_".join(image_file.split("_")[:2])  # Adjust based on ROI naming format
-            image_path = os.path.join(input_folder, image_file)
-            image_groups[base_name].append(image_path)
+            match = pattern.match(image_file)
+            if match:
+                base_name = match.group(1)  # Extract the part up to "_unfiltered_frame"
+                image_path = os.path.join(input_folder, image_file)
+                image_groups[base_name].append(image_path)
 
-    # Process each group of ROIs
+    # Now proceed with denoising each group of ROIs
     for base_name, image_paths in tqdm(image_groups.items(), desc="Processing image groups"):
         rois = [utils.load_image_as_tensor(image_path, device=device) for image_path in image_paths]
+        rois_batch = torch.cat(rois, dim=0)
         betas_tensor = torch.from_numpy(betas).float().to(device)
         
-        # Estimate the average timestep for the ROIs of this image
         avg_timestep = estimate_average_timestep_for_image(rois, betas_tensor, "gaussian")
         print(f"Average timestep for {base_name}: {avg_timestep}")
-
-        # Start timing for the entire image
         image_start_time = time.time()
+
+        # Perform batched denoising
+        denoised_images = denoise_image(model, rois_batch, betas_tensor, avg_timestep)
+        denoised_images = denoised_images.cpu()
         
-        for image_path in image_paths:
-            test_image = utils.load_image_as_tensor(image_path, device=device)
-            
-            # Start timing for a single ROI denoising
-            roi_start_time = time.time()
-            
-            # Perform denoising
-            denoised_image = denoise_image(model, test_image, betas, avg_timestep)
-            
-            # Calculate and print time taken for the ROI
-            roi_time = time.time() - roi_start_time
-            print(f"Time to denoise ROI '{image_path}': {roi_time:.2f} seconds")
-
-            # Save the denoised image
+        for i, image_path in enumerate(image_paths):
             output_file_path = os.path.join(output_folder, f"{os.path.splitext(os.path.basename(image_path))[0]}_denoised.png")
-            utils.save_image(denoised_image, output_file_path)
+            utils.save_image(denoised_images[i], output_file_path)
             print(f"Denoised image saved as: {output_file_path}")
-
-        # Calculate and print total time taken for all ROIs of the image
+        
+        del rois_batch, denoised_images
+        torch.cuda.empty_cache()  # Clear cached memory on the GPU
+        
         total_image_time = time.time() - image_start_time
         print(f"Total time to denoise image '{base_name}': {total_image_time:.2f} seconds\n")
 
-
 def main(config):
     input_path = "/home/jaltieri/ddpmx/rois256"
-    output_folder = "/home/jaltieri/ddpmx/output_256v2"
+    output_folder = "/home/jaltieri/ddpmx/output_256v3"
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # Load model and beta schedule
@@ -142,7 +148,7 @@ def main(config):
     beta_schedule = utils.get_beta_schedule('linear', beta_start=0.00001, beta_end=0.02, num_diffusion_timesteps=100)
 
     # Process all ROIs in the input folder
-    process_images_in_folder_with_avg_timestep(config, model, beta_schedule, input_path, output_folder, device)
+    process_folder_with_avg_t(model, beta_schedule, input_path, output_folder, device)
 
 
 if __name__ == "__main__":
