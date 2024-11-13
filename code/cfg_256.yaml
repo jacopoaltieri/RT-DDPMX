@@ -14,15 +14,15 @@ model:
   ch: 96
   ch_mult: [1, 1, 2, 4]
   attn_resolutions: [16]
-  dropout: 0.1
-  resamp_with_conv: True
+  dropout: 0.
+  resamp_with_conv: False
   max_timesteps: 100
 
 training:
   num_epochs: 100
-  batch_size: 5
+  batch_size: 6
   learning_rate: 0.0001
   cos_annealing_t_max: 100
   save_every: 1
   early_stopping_patience: 0 # if 0 early stopping is disabled
-  snapshot_path: /home/jaltieri/ddpmx/code/256sca_unet_snapshot.pt
+  snapshot_path: /home/jaltieri/ddpmx/code/unet_snapshot.pt
