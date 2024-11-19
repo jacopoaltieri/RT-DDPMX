@@ -1,12 +1,12 @@
 import os
 import re
-import torch
 import time
+import torch
 import numpy as np
-import utils
+from torch.amp import autocast
 from tqdm import tqdm
 from collections import defaultdict
-from torch.cuda.amp import autocast
+import utils
 
 def estimate_timestep(image: torch.Tensor, betas: torch.Tensor, noise_type="gaussian"):
     """
@@ -33,6 +33,7 @@ def estimate_timestep(image: torch.Tensor, betas: torch.Tensor, noise_type="gaus
     if noise_type.lower() == "gaussian":
         # Expected variance for Gaussian noise at each timestep
         expected_variances = 1 - alpha_cumprod
+        
     #FIXME
     elif noise_type.lower() == "poisson":
         # Adjusted expected variances for Poisson noise
@@ -58,14 +59,8 @@ def estimate_average_timestep_for_image(rois, betas, noise_type="gaussian"):
     Returns:
     - int: Average estimated diffusion timestep for the image.
     """
-    timesteps = []
-    for roi in rois:
-        estimated_timestep = estimate_timestep(roi, betas, noise_type)
-        timesteps.append(estimated_timestep)
-    
-    # Calculate average timestep and round to nearest integer
-    average_timestep = int(round(np.mean(timesteps)))
-    return average_timestep
+    timesteps = [estimate_timestep(roi, betas, noise_type) for roi in rois]
+    return int(round(np.mean(timesteps)))
 
 
 def denoise_image(model, noisy_images, beta_schedule, starting_timestep):
@@ -84,13 +79,12 @@ def denoise_image(model, noisy_images, beta_schedule, starting_timestep):
     x_t = noisy_images
     for t in reversed(range(1, starting_timestep + 1)):
         with torch.no_grad():
-            # Use autocast for mixed precision inference
-            with autocast():
+            with autocast(device_type='cuda'):
                 eta_theta = model(x_t, torch.full((x_t.shape[0],), t, device=x_t.device, dtype=torch.int64))
         
         beta_t = beta_schedule[t]
         beta_t = torch.tensor(beta_t, device=x_t.device) if not isinstance(beta_t, torch.Tensor) else beta_t
-        x_t = (1 / torch.sqrt(1 - beta_t)) * (x_t - beta_t * eta_theta)
+        x_t.sub_(beta_t * eta_theta).div_(torch.sqrt(1 - beta_t)) #x_t = (1 / torch.sqrt(1 - beta_t)) * (x_t - beta_t * eta_theta)
     return x_t.cpu()
 
 
@@ -113,10 +107,10 @@ def process_folder_with_avg_t(model, betas, input_folder: str, output_folder: st
                 image_path = os.path.join(input_folder, image_file)
                 image_groups[base_name].append(image_path)
 
-    # Now proceed with denoising each group of ROIs
+
     for base_name, image_paths in tqdm(image_groups.items(), desc="Processing image groups"):
         rois = [utils.load_image_as_tensor(image_path, device=device) for image_path in image_paths]
-        rois_batch = torch.cat(rois, dim=0)
+        rois_batch = torch.cat(rois, dim=0).to(device)
         betas_tensor = torch.from_numpy(betas).float().to(device)
         
         avg_timestep = estimate_average_timestep_for_image(rois, betas_tensor, "gaussian")
