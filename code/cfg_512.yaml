@@ -1,15 +1,17 @@
 # Data parameters
 dataset:
   seq_folder: /home/jaltieri/ddpmx/tifs
-  input_size: [256,256]
-  directory: /home/jaltieri/ddpmx/rois256
+  input_size: [512,512]
+  directory: /home/jaltieri/ddpmx/resized512
+  process_all_frames: true  # Set to true to process all frames, or false to process only the middle frame
+  mode: "rescale"
   train_ratio: 0.8
   val_ratio: 0.1
 
 model:
   in_ch: 1
   out_ch: 1
-  resolution: 256
+  resolution: 512
   num_res_blocks: 2
   ch: 64
   ch_mult: [1, 1, 2, 4]
@@ -19,10 +21,10 @@ model:
   max_timesteps: 100
 
 training:
-  num_epochs: 100
-  batch_size: 6
+  num_epochs: 200
+  batch_size: 2
   learning_rate: 0.0001
   cos_annealing_t_max: 100
   save_every: 1
   early_stopping_patience: 0 # if 0 early stopping is disabled
-  snapshot_path: /home/jaltieri/ddpmx/code/64_snapshot.pt
+  snapshot_path: /home/jaltieri/ddpmx/code/512_64_unet_snapshot.pt
