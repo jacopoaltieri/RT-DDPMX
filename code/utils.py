@@ -31,13 +31,14 @@ def generate_mock_dataloader(batch_size=2, image_size=(1, 128, 128), num_batches
         yield images, timesteps    
     
     
-def load_image_as_tensor(image_path, device="cuda"):
+def load_image_as_tensor(image_path, device="cuda",add_batch=False):
     image = Image.open(image_path).convert("I;16")
     image = np.array(image, dtype=np.float32) / 65535.0
 
     # Convert to a tensor and add a channel dimension to make it compatible with model input
     image_tensor = torch.tensor(image, dtype=torch.float32).unsqueeze(0)  # Shape: (1, H, W)
-    image_tensor = image_tensor.unsqueeze(0)  # Shape: (1, 1, H, W)
+    if add_batch:
+        image_tensor = image_tensor.unsqueeze(0)  # Shape: (1, 1, H, W)
     image_tensor = image_tensor.to(device)
     return image_tensor
     
